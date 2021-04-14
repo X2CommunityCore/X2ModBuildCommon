@@ -28,7 +28,7 @@ class BuildProject {
 	[string] $modcookdir
 	[string[]] $thismodpackages
 	[bool] $isHl
-	[bool] $cook
+	[bool] $cookHL
 
 
 	BuildProject(
@@ -88,7 +88,7 @@ class BuildProject {
 		$this._RunMakeMod()
 		if ($this.isHl) {
 			if (-not $this.debug) {
-				$this._RunCook()
+				$this._RunCookHL()
 			} else {
 				Write-Host "Skipping cooking as debug build"
 			}
@@ -134,7 +134,7 @@ class BuildProject {
 		$this.thismodpackages = Get-ChildItem "$($this.modSrcRoot)/Src" -Directory
 
 		$this.isHl = $this._HasNativePackages()
-		$this.cook = $this.isHl -and -not $this.debug
+		$this.cookHL = $this.isHl -and -not $this.debug
 
 		if (-not $this.isHl -and $this.final_release) {
 			ThrowFailure "-final_release only makes sense if the mod in question is a Highlander"
@@ -179,7 +179,7 @@ class BuildProject {
 		Write-Host "Written."
 
 		# Create CookedPCConsole folder for the mod
-		if ($this.cook) {
+		if ($this.cookHL) {
 			New-Item "$($this.stagingPath)/CookedPCConsole" -ItemType Directory
 		}
 	}
@@ -341,7 +341,7 @@ class BuildProject {
 		# copy packages to staging
 		Write-Host "Copying the compiled or cooked packages to staging..."
 		foreach ($name in $this.thismodpackages) {
-			if ($this.cook -and $global:nativescriptpackages.Contains($name))
+			if ($this.cookHL -and $global:nativescriptpackages.Contains($name))
 			{
 				# This is a native (cooked) script package -- copy important upks
 				Copy-Item "$($this.modcookdir)\$name.upk" "$($this.stagingPath)\CookedPCConsole" -Force -WarningAction SilentlyContinue
@@ -416,8 +416,8 @@ class BuildProject {
 		}
 	}
 
-	[void]_RunCook() {
-		Invoke-Cook $this.sdkPath $this.gamePath $this.modcookdir $this.final_release
+	[void]_RunCookHL() {
+		Invoke-CookHL $this.sdkPath $this.gamePath $this.modcookdir $this.final_release
 	}
 
 	[void]_FinalCopy() {
@@ -562,7 +562,7 @@ function SuccessMessage($message, $modNameCanonical)
     Write-Host "$modNameCanonical ready to run." -ForegroundColor "Green"
 }
 
-function Invoke-Cook([string] $sdkPath, [string] $gamePath, [string] $modcookdir, [bool] $final_release) {
+function Invoke-CookHL([string] $sdkPath, [string] $gamePath, [string] $modcookdir, [bool] $final_release) {
     # Cook it
     # Normally, the mod tools create a symlink in the SDK directory to the game CookedPCConsole directory,
     # but we'll just be using the game one to make it more robust
