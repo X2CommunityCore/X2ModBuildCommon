@@ -237,7 +237,7 @@ class BuildProject {
 		Write-Host "Converting the localization file encoding..."
 		Get-ChildItem "$($this.stagingPath)\Localization" -Recurse -File | 
 		Foreach-Object {
-			$content = Get-Content $_.FullName
+			$content = Get-Content $_.FullName -Encoding UTF8
 			$content | Out-File $_.FullName -Encoding Unicode
 		}
 	}
