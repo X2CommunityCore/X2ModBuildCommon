@@ -24,6 +24,7 @@ class BuildProject {
 	[string] $modSrcRoot
 	[string] $devSrcRoot
 	[string] $stagingPath
+	[string] $buildCachePath
 	[string] $modcookdir
 	[string[]] $thismodpackages
 	[bool] $isHl
@@ -141,6 +142,11 @@ class BuildProject {
 
 		$this.modcookdir = [io.path]::combine($this.sdkPath, 'XComGame', 'Published', 'CookedPCConsole')
 
+		$this.buildCachePath = [io.path]::combine($this.projectRoot, 'BuildCache')
+		if (!(Test-Path $this.buildCachePath))
+		{
+			New-Item -ItemType "directory" -Path $this.buildCachePath
+		}
 	}
 
 	[void]_CopyModToSdk() {
@@ -353,52 +359,60 @@ class BuildProject {
 	}
 
 	[void]_PrecompileShaders() {
-		if(Test-Path "$($this.modSrcRoot)/Content") {
-			$contentfiles = Get-ChildItem "$($this.modSrcRoot)/Content\*"  -Include *.upk, *.umap -Recurse -File
+		if (!(Test-Path "$($this.modSrcRoot)/Content"))
+		{
+			Write-Host "No content folder, skipping PrecompileShaders."
+			return
+		}
 
-			if ($contentfiles.length -eq 0) {
-				Write-Host "No content files, skipping PrecompileShaders."
-			}
+		$contentfiles = Get-ChildItem "$($this.modSrcRoot)/Content\*"  -Include *.upk, *.umap -Recurse -File
 
-			$shader_cache_path = "$($this.gamePath)/XComGame/Mods/$($this.modNameCanonical)/Content/$($this.modNameCanonical)_ModShaderCache.upk"
-			$need_shader_precompile = $false
+		if ($contentfiles.length -eq 0) {
+			Write-Host "No content files, skipping PrecompileShaders."
+			return
+		}
+
+		$need_shader_precompile = $false
+		$shaderCacheName = "$($this.modNameCanonical)_ModShaderCache.upk"
+		$cachedShaderCachePath = "$($this.buildCachePath)/$($shaderCacheName)"
+		
+		# Try to find a reason to precompile the shaders
+		# TODO: Deleting a content file currently does not trigger re-precompile
+		if (!(Test-Path -Path $cachedShaderCachePath))
+		{
+			$need_shader_precompile = $true
+		} 
+		elseif ($contentfiles.length -gt 0)
+		{
+			$shader_cache = Get-Item $cachedShaderCachePath
 			
-			# Try to find a reason to precompile the shaders
-			if (!(Test-Path -Path $shader_cache_path))
+			foreach ($file in $contentfiles)
 			{
-				$need_shader_precompile = $true
-			} 
-			elseif ($contentfiles.length -gt 0)
-			{
-				$shader_cache = Get-Item $shader_cache_path
-				
-				foreach ($file in $contentfiles)
+				if ($file.LastWriteTime -gt $shader_cache.LastWriteTime -Or $file.CreationTime -gt $shader_cache.LastWriteTime)
 				{
-					if ($file.LastWriteTime -gt $shader_cache.LastWriteTime -Or $file.CreationTime -gt $shader_cache.LastWriteTime)
-					{
-						$need_shader_precompile = $true
-						break
-					}
+					$need_shader_precompile = $true
+					break
 				}
 			}
-			
-			if ($need_shader_precompile)
+		}
+		
+		if ($need_shader_precompile)
+		{
+			# build the mod's shader cache
+			Write-Host "Precompiling Shaders..."
+			&"$($this.sdkPath)/binaries/Win64/XComGame.com" precompileshaders -nopause platform=pc_sm4 DLC=$($this.modNameCanonical)
+			if ($LASTEXITCODE -ne 0)
 			{
-				# build the mod's shader cache
-				Write-Host "Precompiling Shaders..."
-				&"$($this.sdkPath)/binaries/Win64/XComGame.com" precompileshaders -nopause platform=pc_sm4 DLC=$($this.modNameCanonical)
-				if ($LASTEXITCODE -ne 0)
-				{
-					ThrowFailure "Failed to compile mod shader cache!"
-				}
-				Write-Host "Generated Shader Cache."
+				ThrowFailure "Failed to compile mod shader cache!"
 			}
-			else
-			{
-				Write-Host "Copying existing shader cache..."
-				Copy-Item "$shader_cache_path" "$($this.stagingPath)\Content" -Force -WarningAction SilentlyContinue
-				Write-Host "Copied existing shader cache."
-			}
+			Write-Host "Generated Shader Cache."
+
+			Copy-Item -Path "$($this.stagingPath)/Content/$shaderCacheName" -Destination $this.buildCachePath
+		}
+		else
+		{
+			Write-Host "No reason to precompile shaders, using existing"
+			Copy-Item -Path $cachedShaderCachePath -Destination "$($this.stagingPath)/Content"
 		}
 	}
 
@@ -407,9 +421,20 @@ class BuildProject {
 	}
 
 	[void]_FinalCopy() {
+		$finalModPath = "$($this.gamePath)\XComGame\Mods\$($this.modNameCanonical)"
+
+		# Delete the actual game's mod's folder
+		# This ensures that files that were deleted in the project will also get deleted in the deployed version
+		if (Test-Path $finalModPath)
+		{
+			Write-Host "Deleting existing deployed mod folder"
+			Remove-Item $finalModPath -Force -Recurse
+		}
+
 		# copy all staged files to the actual game's mods folder
+		# TODO: Is the string interpolation required in the robocopy calls?
 		Write-Host "Copying all staging files to production..."
-		Robocopy.exe "$($this.stagingPath)" "$($this.gamePath)\XComGame\Mods\$($this.modNameCanonical)" *.* $global:def_robocopy_args
+		Robocopy.exe "$($this.stagingPath)" "$($finalModPath)" *.* $global:def_robocopy_args
 		Write-Host "Copied mod to game directory."
 	}
 }
