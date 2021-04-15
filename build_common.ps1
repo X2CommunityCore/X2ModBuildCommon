@@ -8,10 +8,11 @@ $global:def_robocopy_args = @("/S", "/E", "/DCOPY:DA", "/COPY:DAT", "/PURGE", "/
 $global:nativescriptpackages = @("XComGame", "Core", "Engine", "GFxUI", "AkAudio", "GameFramework", "UnrealEd", "GFxUIEditor", "IpDrv", "OnlineSubsystemPC", "OnlineSubsystemLive", "OnlineSubsystemSteamworks", "OnlineSubsystemPSN")
 
 class BuildProject {
-	[string]$modNameCanonical
-	[string]$projectRoot
-	[string]$sdkPath
-	[string]$gamePath
+	[string] $modNameCanonical
+	[string] $projectRoot
+	[string] $sdkPath
+	[string] $gamePath
+	[string] $contentOptionsJsonPath
 	[int] $publishID = -1
 	[bool] $compileTest = $false
 	[bool] $debug = $false
@@ -29,6 +30,7 @@ class BuildProject {
 	[string[]] $thismodpackages
 	[bool] $isHl
 	[bool] $cookHL
+	[PSCustomObject] $contentOptions
 
 
 	BuildProject(
@@ -41,6 +43,11 @@ class BuildProject {
 		$this.projectRoot = $projectRoot
 		$this.sdkPath = $sdkPath
 		$this.gamePath = $gamePath
+	}
+
+	[void]SetContentOptionsJsonPath($path) {
+		if (!(Test-Path $path)) { ThrowFailure "ContentOptionsJsonPath $path doesn't exist" }
+		$this.contentOptionsJsonPath = $path
 	}
 
 	[void]SetWorkshopID([int] $publishID) {
@@ -77,6 +84,7 @@ class BuildProject {
 
 	[void]InvokeBuild() {
 		$this._ConfirmPaths()
+		$this._LoadContentOptions()
 		$this._SetupUtils()
 		$this._ValidateProjectFiles()
 		$this._Clean()
@@ -95,6 +103,7 @@ class BuildProject {
 		}
 		$this._CopyScriptPackages()
 		$this._PrecompileShaders()
+		$this._CopyMissingUncooked()
 		$this._FinalCopy()
 	}
 
@@ -121,6 +130,32 @@ class BuildProject {
 		elseif (!(Test-Path $this.gamePath)) 
 		{
 			ThrowFailure ("The path '{}' doesn't exist. Please adjust the xcom.highlander.gameroot variable in your user config and retry." -f $this.gamePath)
+		}
+	}
+
+	[void]_LoadContentOptions() {
+		if ([string]::IsNullOrEmpty($this.contentOptionsJsonPath))
+		{
+			$this.contentOptions = [PSCustomObject]@{}
+		}
+		else
+		{
+			$this.contentOptions = Get-Content $this.contentOptionsJsonPath | ConvertFrom-Json
+		}
+
+		if ($null -ne $this.contentOptions.missingUncooked)
+		{
+			$this.contentOptions.missingUncooked = @()
+		}
+		
+		if ($null -ne $this.contentOptions.packagesToMakeSF)
+		{
+			$this.contentOptions.packagesToMakeSF = @()
+		}
+		
+		if ($null -ne $this.contentOptions.umapsToCook)
+		{
+			$this.contentOptions.umapsToCook = @()
 		}
 	}
 
@@ -418,6 +453,29 @@ class BuildProject {
 
 	[void]_RunCookHL() {
 		Invoke-CookHL $this.sdkPath $this.gamePath $this.modcookdir $this.final_release
+	}
+
+	[void]_CopyMissingUncooked() {
+		if ($this.contentOptions.missingUncooked.Length -lt 1)
+		{
+			Write-Host "Skipping Missing Uncooked logic"
+			return
+		}
+
+		Write-Host "Including MissingUncooked"
+
+		$missingUncookedPath = [io.path]::Combine($this.stagingPath, "Content", "MissingUncooked")
+		$sdkContentPath = [io.path]::Combine($this.sdkPath, "XComGame", "Content")
+
+		if (!(Test-Path $missingUncookedPath))
+		{
+			New-Item -ItemType "directory" -Path $missingUncookedPath
+		}
+
+		foreach ($fileName in $this.contentOptions.missingUncooked)
+		{
+			(Get-ChildItem -Path $sdkContentPath -Filter $fileName -Recurse).FullName | Copy-Item -Destination $missingUncookedPath
+		}
 	}
 
 	[void]_FinalCopy() {
