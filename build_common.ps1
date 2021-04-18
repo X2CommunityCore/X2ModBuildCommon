@@ -4,6 +4,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 
 $global:def_robocopy_args = @("/S", "/E", "/DCOPY:DA", "/COPY:DAT", "/PURGE", "/MIR", "/NP", "/R:1000000", "/W:30")
+$global:buildCommonSelfPath = split-path -parent $MyInvocation.MyCommand.Definition
 # list of all native script packages
 $global:nativescriptpackages = @("XComGame", "Core", "Engine", "GFxUI", "AkAudio", "GameFramework", "UnrealEd", "GFxUIEditor", "IpDrv", "OnlineSubsystemPC", "OnlineSubsystemLive", "OnlineSubsystemSteamworks", "OnlineSubsystemPSN")
 
@@ -25,12 +26,16 @@ class BuildProject {
 	[string] $modSrcRoot
 	[string] $devSrcRoot
 	[string] $stagingPath
+	[string] $commandletHostPath
 	[string] $buildCachePath
 	[string] $modcookdir
 	[string[]] $thismodpackages
 	[bool] $isHl
 	[bool] $cookHL
 	[PSCustomObject] $contentOptions
+	[string] $defaultEnginePath
+	[string] $defaultEngineContentOriginal
+	[string] $assetsCookTfcSuffix
 
 
 	BuildProject(
@@ -102,8 +107,17 @@ class BuildProject {
 			}
 		}
 		$this._CopyScriptPackages()
+		
+		# The shader step needs to happen before cooking - precompiler gets confused by some inlined materials
 		$this._PrecompileShaders()
+
+		$this._RunCookAssets()
+
+		# Do this last as there is no need for it earlier - the cooker obviously has access to the game assets
+		# and precompiling shaders seems to do nothing (I assume they are included in the game's GlobalShaderCache)
+		# TODO: test shaders that were not inlined into maps/SF packages
 		$this._CopyMissingUncooked()
+
 		$this._FinalCopy()
 	}
 
@@ -163,6 +177,9 @@ class BuildProject {
 		$this.modSrcRoot = "$($this.projectRoot)\$($this.modNameCanonical)"
 		$this.stagingPath = "$($this.sdkPath)\XComGame\Mods\$($this.modNameCanonical)"
 		$this.devSrcRoot = "$($this.sdkPath)\Development\Src"
+
+		# TODO: Replace other interpolations with this variable
+		$this.commandletHostPath = "$($this.sdkPath)/binaries/Win64/XComGame.com"
 
 		# build package lists we'll need later and delete as appropriate
 		# the mod's packages
@@ -394,6 +411,7 @@ class BuildProject {
 	}
 
 	[void]_PrecompileShaders() {
+		# TODO: Include ContentForCook here
 		if (!(Test-Path "$($this.modSrcRoot)/Content"))
 		{
 			Write-Host "No content folder, skipping PrecompileShaders."
@@ -449,6 +467,176 @@ class BuildProject {
 			Write-Host "No reason to precompile shaders, using existing"
 			Copy-Item -Path $cachedShaderCachePath -Destination "$($this.stagingPath)/Content"
 		}
+	}
+
+	[void]_RunCookAssets() {
+		if (($this.contentOptions.packagesToMakeSF.Length -lt 1) -and ($this.contentOptions.umapsToCook.Length -lt 1)) {
+			Write-Host "No asset cooking is requested, skipping"
+			return
+		}
+
+		if (-not(Test-Path "$($this.modSrcRoot)/ContentForCook"))
+		{
+			ThrowFailure "Asset cooking is requested, but no ContentForCook folder is present"
+		}
+
+		Write-Host "Starting assets cooking"
+
+		# Step 0. Basic preparation
+		
+		$this.assetsCookTfcSuffix = "_$($this.modNameCanonical)_"
+		$projectCookCacheDir = [io.path]::combine($this.srcDirectory, 'BuildCache', 'PublishedCookedPCConsole')
+		
+		$this.defaultEnginePath = "$($this.sdkPath)/XComGame/Config/DefaultEngine.ini"
+		$this.defaultEngineContentOriginal = Get-Content $this.defaultEnginePath | Out-String
+		
+		$cookOutputDir = [io.path]::combine($this.sdkPath, 'XComGame', 'Published', 'CookedPCConsole')
+		$sdkModsContentDir = [io.path]::combine($this.sdkPath, 'XComGame', 'Content', 'Mods')
+		
+		# First, we need to check that everything is ready for us to do these shenanigans
+		# This doesn't use locks, so it can break if multiple builds are running at the same time,
+		# so let's hope that mod devs are smart enough to not run simultanoues builds
+		
+		if ($this.defaultEngineContentOriginal.Contains("HACKS FOR MOD ASSETS COOKING"))
+		{
+			ThrowFailure "Another cook is already in progress (DefaultEngine.ini)"
+		}
+
+		if (Test-Path "$sdkModsContentDir\*")
+		{
+			ThrowFailure "$sdkModsContentDir is not empty"
+		}
+
+		# Prepare the cook output folder
+		# TODO: Switch HL cook to junctions as well?
+		$previousCookOutputDirPath = $null
+		if (Test-Path $cookOutputDir)
+		{
+			$previousCookOutputDirName = "Pre_$($this.modNameCanonical)_Cook_CookedPCConsole"
+			$previousCookOutputDirPath = [io.path]::combine($this.sdkPath, 'XComGame', 'Published', $previousCookOutputDirName)
+			
+			Rename-Item $cookOutputDir $previousCookOutputDirName
+		} 
+
+		# Make sure our local cache folder exists
+		$firstModCook = $false
+		if (!(Test-Path $projectCookCacheDir))
+		{
+			New-Item -ItemType "directory" -Path $projectCookCacheDir
+			$firstModCook = $true
+		}
+
+		# Redirect all the cook output to our local cache
+		# This allows us to not recook everything when switching between projects (e.g. CHL)
+		New-Junction $cookOutputDir $projectCookCacheDir
+
+		# "Inject" our assets into the SDK to make them visible to the cooker
+		Remove-Item $sdkModsContentDir
+		New-Junction $sdkModsContentDir "$($this.modSrcRoot)\ContentForCook"
+
+		if ($firstModCook) {
+			# First do a cook without our assets since some base game assets still get included in the cook, depsite the hacks above
+
+            Write-Host "Running first time mod assets cook"
+			$this._InvokeAssetCooker(@(), @())
+
+			# Now delete the polluted TFCs
+            Get-ChildItem -Path $projectCookCacheDir -Filter "*$($this.assetsCookTfcSuffix).tfc" | Remove-Item
+
+            Write-Host "First time cook done, proceeding with normal"
+		}
+
+		$this._InvokeAssetCooker($this.contentOptions.packagesToMakeSF, $this.contentOptions.umapsToCook)
+
+		# Revert ini
+		$this.defaultEngineContentOriginal | Set-Content $this.defaultEnginePath -NoNewline;
+		
+		# Revert junctions
+		Remove-Junction $cookOutputDir
+		if (![string]::IsNullOrEmpty($previousCookOutputDirPath))
+		{
+			Rename-Item $previousCookOutputDirPath "CookedPCConsole"
+		}
+		
+		Remove-Junction $sdkModsContentDir
+		New-Item -Path $sdkModsContentDir -ItemType Directory
+		
+		# Prepare the folder for cooked stuff
+		$stagingCookedDir = [io.path]::combine($this.stagingPath, 'CookedPCConsole')
+		New-Item -ItemType "directory" -Path $stagingCookedDir
+		
+		# Copy over the TFC files
+		Get-ChildItem -Path $projectCookCacheDir -Filter "*$($this.assetsCookTfcSuffix).tfc" | Copy-Item -Destination $stagingCookedDir
+		
+		# Copy over the maps
+		for ($i = 0; $i -lt $this.contentOptions.umapsToCook.Length; $i++) 
+		{
+			$umap = $this.contentOptions.umapsToCook[$i];
+			Copy-Item "$projectCookCacheDir\$umap.upk" -Destination $stagingCookedDir
+		}
+		
+		# Copy over the SF packages
+		for ($i = 0; $i -lt $this.contentOptions.packagesToMakeSF.Length; $i++) 
+		{
+			$package = $this.contentOptions.packagesToMakeSF[$i];
+            $dest = [io.path]::Combine($stagingCookedDir, "${package}.upk");
+			
+			# Mod assets for some reason refuse to load with the _SF suffix
+			Copy-Item "$projectCookCacheDir\${package}_SF.upk" -Destination $dest
+		}
+
+        # No need for the ContentForCook directory anymore
+        Remove-Item "$($this.stagingPath)/ContentForCook" -Recurse
+
+		Write-Host "Assets cook completed"
+	}
+
+	[void]_InvokeAssetCooker ([string[]] $packagesToMakeSF, [string[]] $umapsToCook) {
+		$defaultEngineContentNew = $this.defaultEngineContentOriginal
+		$defaultEngineContentNew = "$defaultEngineContentNew`n; HACKS FOR MOD ASSETS COOKING - $($this.modNameCanonical)"
+
+		# Remove various default always seek free packages
+		# This will trump the rest of file content as it's all the way at the bottom
+		$defaultEngineContentNew = "$defaultEngineContentNew`n[Engine.ScriptPackages]`n!EngineNativePackages=Empty`n!NetNativePackages=Empty`n!NativePackages=Empty"
+		$defaultEngineContentNew = "$defaultEngineContentNew`n[Engine.StartupPackages]`n!Package=Empty"
+		$defaultEngineContentNew = "$defaultEngineContentNew`n[Engine.PackagesToAlwaysCook]`n!SeekFreePackage=Empty"
+
+		# Add our standalone seek free packages
+		for ($i = 0; $i -lt $packagesToMakeSF.Length; $i++) 
+		{
+			$package = $packagesToMakeSF[$i];
+			$defaultEngineContentNew = "$defaultEngineContentNew`n+SeekFreePackage=$package"
+		}
+
+		$defaultEngineContentNew | Set-Content $this.defaultEnginePath -NoNewline;
+		
+		# Invoke cooker
+		
+		$mapsString = ""
+		for ($i = 0; $i -lt $umapsToCook.Length; $i++) 
+		{
+			$umap = $umapsToCook[$i];
+			$mapsString = "$mapsString $umap.umap "
+		}
+		
+		#&"$sdkPath/binaries/Win64/XComGame.com" CookPackages $mapsString -platform=pcconsole -skipmaps -modcook -TFCSUFFIX="$tfcSuffix" -singlethread -unattended
+		# Powershell inserts qoutes around $mapsString which breaks UE's parser. So, we call manually
+		
+        # TODO: Parse output
+        # * "Adding [...]" lines are useful but also an enourmous spam and stay the same as long as the packages to cook and their references stay the same - remove from output (and save to a file in BuildCache?)
+        # * OnlineSubsystemSteamworks and AkAudio cannot be removed from cook and generate 4 errors when mod is built in debug - needs to be ignored
+        # * Cooker can crash and the exit code will still be 0 - need to treat as proper failure (also same for script and shader compilers)
+
+		$pinfo = New-Object System.Diagnostics.ProcessStartInfo
+		$pinfo.FileName = $this.commandletHostPath
+		#$pinfo.RedirectStandardOutput = $true
+		$pinfo.UseShellExecute = $false
+		$pinfo.Arguments = "CookPackages $mapsString -platform=pcconsole -skipmaps -modcook -TFCSUFFIX=$($this.assetsCookTfcSuffix) -singlethread -unattended -usermode"
+		$pinfo.WorkingDirectory = $this.commandletHostPath | Split-Path
+		$p = New-Object System.Diagnostics.Process
+		$p.StartInfo = $pinfo
+		$p.Start() | Out-Null
+		$p.WaitForExit()
 	}
 
 	[void]_RunCookHL() {
@@ -618,6 +806,14 @@ function SuccessMessage($message, $modNameCanonical)
     [System.Media.SystemSounds]::Asterisk.Play()
     Write-Host $message -ForegroundColor "Green"
     Write-Host "$modNameCanonical ready to run." -ForegroundColor "Green"
+}
+
+function New-Junction ([string] $source, [string] $destination) {
+	&"$global:buildCommonSelfPath\junction.exe" -nobanner -accepteula "$source" "$destination"
+}
+
+function Remove-Junction ([string] $path) {
+	&"$global:buildCommonSelfPath\junction.exe" -nobanner -accepteula -d "$path"
 }
 
 function Invoke-CookHL([string] $sdkPath, [string] $gamePath, [string] $modcookdir, [bool] $final_release) {
