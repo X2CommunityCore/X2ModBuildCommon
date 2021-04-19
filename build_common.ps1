@@ -91,7 +91,7 @@ class BuildProject {
 		$this._ConfirmPaths()
 		$this._LoadContentOptions()
 		$this._SetupUtils()
-		$this._ValidateProjectFiles()
+		#$this._ValidateProjectFiles() # TODO: Skip this for content files - there is no point listing them in the modbuddy project
 		$this._Clean()
 		$this._CopyModToSdk()
 		$this._ConvertLocalization()
@@ -148,6 +148,8 @@ class BuildProject {
 	}
 
 	[void]_LoadContentOptions() {
+		Write-Host "Preparing content options"
+
 		if ([string]::IsNullOrEmpty($this.contentOptionsJsonPath))
 		{
 			$this.contentOptions = [PSCustomObject]@{}
@@ -155,21 +157,25 @@ class BuildProject {
 		else
 		{
 			$this.contentOptions = Get-Content $this.contentOptionsJsonPath | ConvertFrom-Json
+			Write-Host "Loaded $($this.contentOptionsJsonPath)"
 		}
 
-		if ($null -ne $this.contentOptions.missingUncooked)
+		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "missingUncooked")
 		{
-			$this.contentOptions.missingUncooked = @()
+			Write-Host "No missing uncooked"
+			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'missingUncooked' -Value @()
 		}
 		
-		if ($null -ne $this.contentOptions.packagesToMakeSF)
+		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "packagesToMakeSF")
 		{
-			$this.contentOptions.packagesToMakeSF = @()
+			Write-Host "No packages to make SF"
+			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'packagesToMakeSF' -Value @()
 		}
 		
-		if ($null -ne $this.contentOptions.umapsToCook)
+		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "umapsToCook")
 		{
-			$this.contentOptions.umapsToCook = @()
+			Write-Host "No umaps to cook"
+			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'umapsToCook' -Value @()
 		}
 	}
 
@@ -485,7 +491,7 @@ class BuildProject {
 		# Step 0. Basic preparation
 		
 		$this.assetsCookTfcSuffix = "_$($this.modNameCanonical)_"
-		$projectCookCacheDir = [io.path]::combine($this.srcDirectory, 'BuildCache', 'PublishedCookedPCConsole')
+		$projectCookCacheDir = [io.path]::combine($this.buildCachePath, 'PublishedCookedPCConsole')
 		
 		$this.defaultEnginePath = "$($this.sdkPath)/XComGame/Config/DefaultEngine.ini"
 		$this.defaultEngineContentOriginal = Get-Content $this.defaultEnginePath | Out-String
@@ -535,7 +541,7 @@ class BuildProject {
 		New-Junction $sdkModsContentDir "$($this.modSrcRoot)\ContentForCook"
 
 		if ($firstModCook) {
-			# First do a cook without our assets since some base game assets still get included in the cook, depsite the hacks above
+			# First do a cook without our assets since gfxCommon.upk still get included in the cook, polluting the TFCs, depsite the config hacks
 
             Write-Host "Running first time mod assets cook"
 			$this._InvokeAssetCooker(@(), @())
