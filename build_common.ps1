@@ -644,9 +644,6 @@ class BuildProject {
 			$mapsString = "$mapsString $umap.umap "
 		}
 		
-		#&"$sdkPath/binaries/Win64/XComGame.com" CookPackages $mapsString -platform=pcconsole -skipmaps -modcook -TFCSUFFIX="$tfcSuffix" -singlethread -unattended
-		# Powershell inserts qoutes around $mapsString which breaks UE's parser. So, we call manually
-		
         # TODO: Parse output
         # * "Adding [...]" lines are useful but also an enourmous spam and stay the same as long as the packages to cook and their references stay the same - remove from output (and save to a file in BuildCache?)
         # * OnlineSubsystemSteamworks and AkAudio cannot be removed from cook and generate 4 errors when mod is built in debug - needs to be ignored
@@ -654,14 +651,69 @@ class BuildProject {
 
 		$pinfo = New-Object System.Diagnostics.ProcessStartInfo
 		$pinfo.FileName = $this.commandletHostPath
-		#$pinfo.RedirectStandardOutput = $true
+		$pinfo.RedirectStandardOutput = $true
+    	$pinfo.RedirectStandardError = $true
 		$pinfo.UseShellExecute = $false
 		$pinfo.Arguments = "CookPackages $mapsString -platform=pcconsole -skipmaps -modcook -TFCSUFFIX=$($this.assetsCookTfcSuffix) -singlethread -unattended -usermode"
 		$pinfo.WorkingDirectory = $this.commandletHostPath | Split-Path
-		$p = New-Object System.Diagnostics.Process
-		$p.StartInfo = $pinfo
-		$p.Start() | Out-Null
-		$p.WaitForExit()
+
+		$messageData = New-Object psobject -property @{
+			foundRelevantError = $false
+			lastLineWasAdding = $false
+		}
+
+		# An action for handling data written to stdout
+		$outAction = {
+			$outTxt = $Event.SourceEventArgs.Data
+
+			if ($outTxt.StartsWith("Adding ")) {
+				if (!$event.MessageData.lastLineWasAdding) {
+					Write-Host "[Adding lines ...]"
+					$event.MessageData.lastLineWasAdding = $true
+				}
+			} else {
+				$event.MessageData.lastLineWasAdding = $false
+				Write-Host $outTxt
+			}
+
+			# Write-Host $outTxt
+
+			# $event.MessageData.foundRelevantError = $true
+		}
+		
+		# An action for handling data written to stderr
+		$errAction = {
+			# TODO: Check if anything of value gets written here when something goes wrong
+			# (when the only problem is "script compiled in debug" nothing gets printed here)
+			$errTxt = $Event.SourceEventArgs.Data
+			Write-Host "ERR: $errTxt"
+		}
+
+		# Set the exited flag on our exit object on process exit.
+		$exitData = New-Object psobject -property @{ exited = $false }
+		$exitAction = {
+			$event.MessageData.exited = $true
+		}
+
+		# Create the process and register for the various events we care about.
+		$process = New-Object System.Diagnostics.Process
+		Register-ObjectEvent -InputObject $process -EventName OutputDataReceived -Action $outAction -MessageData $messageData | Out-Null
+		Register-ObjectEvent -InputObject $process -EventName ErrorDataReceived -Action $errAction | Out-Null
+		Register-ObjectEvent -InputObject $process -EventName Exited -Action $exitAction -MessageData $exitData | Out-Null
+		$process.StartInfo = $pinfo
+
+		# All systems go!
+		$process.Start() | Out-Null
+		$process.BeginOutputReadLine()
+		$process.BeginErrorReadLine()
+
+		# Wait for the process to exit. This is horrible, but using $process.WaitForExit() blocks
+		# the powershell thread so we get no output from make echoed to the screen until the process finishes.
+		# By polling we get regular output as it goes.
+		while (!$exitData.exited) {
+			# Just spin, otherwise we spend 3 minutes processing all the "Adding [...]" lines
+			# Start-Sleep -m 50
+		}
 	}
 
 	[void]_RunCookHL() {
