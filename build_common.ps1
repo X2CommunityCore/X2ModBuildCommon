@@ -660,19 +660,35 @@ class BuildProject {
 		$messageData = New-Object psobject -property @{
 			foundRelevantError = $false
 			lastLineWasAdding = $false
+			permitAdditional = $false
 		}
 
 		# An action for handling data written to stdout
 		$outAction = {
 			$outTxt = $Event.SourceEventArgs.Data
+			$permitLine = $true # Default to true in case there is something we don't handle
 
-			if ($outTxt.StartsWith("Adding ")) {
-				if (!$event.MessageData.lastLineWasAdding) {
-					Write-Host "[Adding lines ...]"
-					$event.MessageData.lastLineWasAdding = $true
+			if ($outTxt.StartsWith("Adding package") -or $outTxt.StartsWith("Adding level") -or $outTxt.StartsWith("Adding script") -or $outTxt.StartsWith("GFx movie package")) {
+				if ($outTxt.Contains("\Mods\")) {
+					$permitLine = $true
+				} else {
+					$permitLine = $false
+
+					if (!$event.MessageData.lastLineWasAdding) {
+						Write-Host "[Adding sdk assets ...]"
+					}
 				}
+
+				$event.MessageData.lastLineWasAdding = !$permitLine
+				$event.MessageData.permitAdditional = $permitLine
+			} elseif ($outTxt.StartsWith("Adding additional")) {
+				$permitLine = $event.MessageData.permitAdditional
 			} else {
 				$event.MessageData.lastLineWasAdding = $false
+				$permitLine = $true
+			}
+
+			if ($permitLine) {
 				Write-Host $outTxt
 			}
 
