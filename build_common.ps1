@@ -428,19 +428,27 @@ class BuildProject {
 	}
 
 	[void]_PrecompileShaders() {
-		# TODO: Include ContentForCook here
-		if (!(Test-Path "$($this.modSrcRoot)/Content"))
-		{
-			Write-Host "No content folder, skipping PrecompileShaders."
-			return
-		}
+		Write-Host "Checking the need to PrecompileShaders"
+		$contentfiles = @()
 
-		$contentfiles = Get-ChildItem "$($this.modSrcRoot)/Content\*"  -Include *.upk, *.umap -Recurse -File
+		if (Test-Path "$($this.modSrcRoot)/Content")
+		{
+			$contentfiles = $contentfiles + (Get-ChildItem "$($this.modSrcRoot)/Content" -Include *.upk, *.umap -Recurse -File)
+		}
+		
+		if (Test-Path "$($this.modSrcRoot)/ContentForCook")
+		{
+			$contentfiles = $contentfiles + (Get-ChildItem "$($this.modSrcRoot)/ContentForCook" -Include *.upk, *.umap -Recurse -File)
+		}
 
 		if ($contentfiles.length -eq 0) {
 			Write-Host "No content files, skipping PrecompileShaders."
 			return
 		}
+
+		# for ($i = 0; $i -lt $contentfiles.Length; $i++) {
+		# 	Write-Host $contentfiles[$i]
+		# }
 
 		$need_shader_precompile = $false
 		$shaderCacheName = "$($this.modNameCanonical)_ModShaderCache.upk"
