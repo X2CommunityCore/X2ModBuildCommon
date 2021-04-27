@@ -91,7 +91,7 @@ class BuildProject {
 		$this._ConfirmPaths()
 		$this._LoadContentOptions()
 		$this._SetupUtils()
-		#$this._ValidateProjectFiles() # TODO: Skip this for content files - there is no point listing them in the modbuddy project
+		$this._ValidateProjectFiles()
 		$this._Clean()
 		$this._CopyModToSdk()
 		$this._ConvertLocalization()
@@ -243,6 +243,7 @@ class BuildProject {
 	}
 
 	# This function verifies that all project files in the mod subdirectories actually exist in the .x2proj file
+	# The exception are the Content files since those have no reason to be listed in the modbuddy project
 	[void]_ValidateProjectFiles()
 	{
 		Write-Host "Checking for missing entries in .x2proj file..."
@@ -255,14 +256,26 @@ class BuildProject {
 			Get-ChildItem $this.modSrcRoot -Directory | Get-ChildItem -File -Recurse |
 			ForEach-Object {
 				# Compiletest file is allowed to be missing because it's not commited and manually edited
-				If (!($_.Name -Match "_Compiletest\.uc$") -and !($projContent | Select-String -Pattern $_.Name)) {
-					$missingFiles.Add($_.Name)
+				if ($_.Name -Match "_Compiletest\.uc$") {
+					return
 				}
+
+				# This catches both [Mod]/Content/ and [Mod]/ContentForCook/
+				if ($_.FullName.Contains("$($this.modNameCanonical)\Content")) {
+					return
+				}
+
+				if ($projContent | Select-String -Pattern $_.Name) {
+					return
+				}
+
+				$missingFiles.Add($_.Name)
 			}
 
 			if ($missingFiles.Count -gt 0)
 			{
-				ThrowFailure "Filenames missing in the .x2proj file: $missingFiles"
+				$strFiles = $missingFiles -join "`r`n`t"
+				ThrowFailure "Filenames missing in the .x2proj file:`n`t$strFiles"
 			}
 		}
 		else
