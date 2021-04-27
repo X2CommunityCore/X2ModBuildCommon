@@ -183,8 +183,6 @@ class BuildProject {
 		$this.modSrcRoot = "$($this.projectRoot)\$($this.modNameCanonical)"
 		$this.stagingPath = "$($this.sdkPath)\XComGame\Mods\$($this.modNameCanonical)"
 		$this.devSrcRoot = "$($this.sdkPath)\Development\Src"
-
-		# TODO: Replace other interpolations with this variable
 		$this.commandletHostPath = "$($this.sdkPath)/binaries/Win64/XComGame.com"
 
 		# build package lists we'll need later and delete as appropriate
@@ -360,7 +358,7 @@ class BuildProject {
 		{
 			$scriptsMakeArguments = "$scriptsMakeArguments -debug"
 		}
-		Invoke-Make "$($this.sdkPath)/binaries/Win64/XComGame.com" $scriptsMakeArguments $this.sdkPath $this.modSrcRoot
+		Invoke-Make $this.commandletHostPath $scriptsMakeArguments $this.sdkPath $this.modSrcRoot
 		if ($LASTEXITCODE -ne 0)
 		{
 			ThrowFailure "Failed to compile base game scripts!"
@@ -371,7 +369,7 @@ class BuildProject {
 		if ($this.final_release -eq $true)
 		{
 			Write-Host "Compiling base game scripts without final_release..."
-			Invoke-Make "$($this.sdkPath)/binaries/Win64/XComGame.com" "make -nopause -unattended" $this.sdkPath $this.modSrcRoot
+			Invoke-Make $this.commandletHostPath "make -nopause -unattended" $this.sdkPath $this.modSrcRoot
 			if ($LASTEXITCODE -ne 0)
 			{
 				ThrowFailure "Failed to compile base game scripts without final_release!"
@@ -387,7 +385,7 @@ class BuildProject {
 		{
 			$scriptsMakeArguments = "$scriptsMakeArguments -debug"
 		}
-		Invoke-Make "$($this.sdkPath)/binaries/Win64/XComGame.com" $scriptsMakeArguments $this.sdkPath $this.modSrcRoot
+		Invoke-Make $this.commandletHostPath $scriptsMakeArguments $this.sdkPath $this.modSrcRoot
 		if ($LASTEXITCODE -ne 0)
 		{
 			ThrowFailure "Failed to compile mod scripts!"
@@ -472,7 +470,7 @@ class BuildProject {
 		{
 			# build the mod's shader cache
 			Write-Host "Precompiling Shaders..."
-			&"$($this.sdkPath)/binaries/Win64/XComGame.com" precompileshaders -nopause platform=pc_sm4 DLC=$($this.modNameCanonical)
+			&"$($this.commandletHostPath)" precompileshaders -nopause platform=pc_sm4 DLC=$($this.modNameCanonical)
 			if ($LASTEXITCODE -ne 0)
 			{
 				ThrowFailure "Failed to compile mod shader cache!"
@@ -659,7 +657,49 @@ class BuildProject {
 	}
 
 	[void]_RunCookHL() {
-		Invoke-CookHL $this.sdkPath $this.gamePath $this.modcookdir $this.final_release
+		# Cook it
+		# Normally, the mod tools create a symlink in the SDK directory to the game CookedPCConsole directory,
+		# but we'll just be using the game one to make it more robust
+		$cookedpcconsoledir = [io.path]::combine($this.gamePath, 'XComGame', 'CookedPCConsole')
+		if(-not(Test-Path $this.modcookdir))
+		{
+			Write-Host "Creating Published/CookedPCConsole directory..."
+			New-Item $this.modcookdir -ItemType Directory
+		}
+
+		[System.String[]]$files = "GuidCache.upk", "GlobalPersistentCookerData.upk", "PersistentCookerShaderData.bin"
+		foreach ($name in $files) {
+			if(-not(Test-Path ([io.path]::combine($this.modcookdir, $name))))
+			{
+				Write-Host "Copying $name..."
+				Copy-Item ([io.path]::combine($cookedpcconsoledir, $name)) $this.modcookdir
+			}
+		}
+
+		# Ideally, the cooking process wouldn't modify the big *.tfc files, but it does, so we don't overwrite existing ones (/XC /XN /XO)
+		# In order to "reset" the cooking direcory, just delete it and let the script recreate them
+		Write-Host "Copying Texture File Caches..."
+		Robocopy.exe "$cookedpcconsoledir" "$($this.modcookdir)" *.tfc /NJH /XC /XN /XO
+		Write-Host "Copied Texture File Caches."
+
+		# Cook it!
+		# The CookPackages commandlet generally is super unhelpful. The output is basically always the same and errors
+		# don't occur -- it rather just crashes the game. Hence, we just pipe the output to $null
+		Write-Host "Invoking CookPackages (this may take a while)"
+		$cook_args = @("-platform=pcconsole", "-quickanddirty", "-modcook", "-sha", "-multilanguagecook=INT+FRA+ITA+DEU+RUS+POL+KOR+ESN", "-singlethread", "-nopause")
+		if ($this.final_release -eq $true)
+		{
+			$cook_args += "-final_release"
+		}
+		
+		& "$($this.commandletHostPath)" CookPackages @cook_args >$null 2>&1
+
+		if ($LASTEXITCODE -ne 0)
+		{
+			ThrowFailure "Failed to cook native script packages!"
+		}
+
+		Write-Host "Cooked native script packages."
 	}
 
 	[void]_CopyMissingUncooked() {
@@ -833,50 +873,4 @@ function New-Junction ([string] $source, [string] $destination) {
 
 function Remove-Junction ([string] $path) {
 	&"$global:buildCommonSelfPath\junction.exe" -nobanner -accepteula -d "$path"
-}
-
-function Invoke-CookHL([string] $sdkPath, [string] $gamePath, [string] $modcookdir, [bool] $final_release) {
-    # Cook it
-    # Normally, the mod tools create a symlink in the SDK directory to the game CookedPCConsole directory,
-    # but we'll just be using the game one to make it more robust
-    $cookedpcconsoledir = [io.path]::combine($gamePath, 'XComGame', 'CookedPCConsole')
-    if(-not(Test-Path $modcookdir))
-    {
-        Write-Host "Creating Published/CookedPCConsole directory..."
-        New-Item $modcookdir -ItemType Directory
-    }
-
-    [System.String[]]$files = "GuidCache.upk", "GlobalPersistentCookerData.upk", "PersistentCookerShaderData.bin"
-    foreach ($name in $files) {
-        if(-not(Test-Path ([io.path]::combine($modcookdir, $name))))
-        {
-            Write-Host "Copying $name..."
-            Copy-Item ([io.path]::combine($cookedpcconsoledir, $name)) $modcookdir
-        }
-    }
-
-    # Ideally, the cooking process wouldn't modify the big *.tfc files, but it does, so we don't overwrite existing ones (/XC /XN /XO)
-    # In order to "reset" the cooking direcory, just delete it and let the script recreate them
-    Write-Host "Copying Texture File Caches..."
-	Robocopy.exe "$cookedpcconsoledir" "$modcookdir" *.tfc /NJH /XC /XN /XO
-	Write-Host "Copied Texture File Caches."
-
-    # Cook it!
-    # The CookPackages commandlet generally is super unhelpful. The output is basically always the same and errors
-    # don't occur -- it rather just crashes the game. Hence, we just pipe the output to $null
-	Write-Host "Invoking CookPackages (this may take a while)"
-	$cook_args = @("-platform=pcconsole", "-quickanddirty", "-modcook", "-sha", "-multilanguagecook=INT+FRA+ITA+DEU+RUS+POL+KOR+ESN", "-singlethread", "-nopause")
-    if ($final_release -eq $true)
-    {
-		$cook_args += "-final_release"
-	}
-	
-	& "$sdkPath/binaries/Win64/XComGame.com" CookPackages @cook_args >$null 2>&1
-
-    if ($LASTEXITCODE -ne 0)
-    {
-        ThrowFailure "Failed to cook packages!"
-    }
-
-    Write-Host "Cooked packages."
 }
