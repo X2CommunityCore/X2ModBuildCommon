@@ -756,7 +756,7 @@ class BuildProject {
 			# TODO: Check if anything of value gets written here when something goes wrong
 			# (when the only problem is "script compiled in debug" nothing gets printed here)
 			$errTxt = $Event.SourceEventArgs.Data
-			Write-Host "ERR: $errTxt"
+			Write-Host $errTxt
 		}
 
 		# Set the exited flag on our exit object on process exit.
