@@ -21,14 +21,26 @@
     </PropertyGroup>
 
     <!-- Prevent spontaneous build warnings/errors -->
-    <Target Name="GetFrameworkPaths" />
+    <!-- <Target Name="GetFrameworkPaths" /> -->
 
     <!-- END Required for ModBuddy -->
 
-    <!-- Setup various paths -->
+    <UsingTask TaskName="ExecPowershellBuildEntry" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v4.0.dll">
+        <ParameterGroup>
+            <BuildEntryPs1 Required="true" />
+            <SolutionRoot Required="true" />
+            <SdkInstallPath Required="true" />
+            <GameInstallPath Required="true" />
+            <BuildEntryConfig Required="true" />
+          </ParameterGroup>
+        <Task>
+            <Code Language="cs" Source="$(BuildCommonRoot)ExecPowershellBuildEntry.cs" />
+        </Task>
+    </UsingTask>
+
+    <!-- Setup default build entrypoint if none is set -->
     <PropertyGroup>
-        <GameInstallPath>$(XCOM2_GamePath)..\</GameInstallPath>
-        <SDKInstallPath>$(XCOM2_UserPath)..\</SDKInstallPath>
+        <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
         <BuildEntryPs1 Condition=" '$(BuildEntryPs1)' == '' ">$(ScriptsDir)build.ps1</BuildEntryPs1>
     </PropertyGroup>
 
@@ -45,18 +57,24 @@
 
     <!-- Misc targets -->
     <Target Name="Clean">
-        <Message Text="Cleaning Mod project..." />
-        <RemoveDir Directories="$(OutputDir)" />
+        <Error Text="Target Clean is not supported"/>
     </Target>
     <Target Name="ReBuild">
-        <Message Text="Rebuilding Mod project..." />
-        <CallTarget Targets="Clean" />
-        <CallTarget Targets="Default" />
+        <Error Text="Target ReBuild is not supported"/>
     </Target>
 
     <!-- The actual build -->
     <Target Name="Default">
         <Message Text="Starting powershell build" />
-        <Exec Command="$(BuildEntryInvocation)" />
+        <!-- <Exec Command="ping 127.0.0.1" /> -->
+        <Exec Command="exit" />
+        <ExecPowershellBuildEntry
+            BuildEntryPs1="$(BuildEntryPs1)"
+            SolutionRoot="$(SolutionRoot)"
+            SdkInstallPath="$(XCOM2_UserPath)..\"
+            GameInstallPath="$(XCOM2_GamePath)..\"
+            BuildEntryConfig="$(BuildEntryConfig)"
+        />
+        <Message Text="Finished powershell build" />
     </Target>
 </Project>
