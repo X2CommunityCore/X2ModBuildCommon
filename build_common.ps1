@@ -551,41 +551,86 @@ class BuildProject {
 			$firstModCook = $true
 		}
 
-		# Redirect all the cook output to our local cache
-		# This allows us to not recook everything when switching between projects (e.g. CHL)
-		New-Junction $cookOutputDir $projectCookCacheDir
+		# Backup the DefaultEngine.ini
+		Copy-Item $this.defaultEnginePath "$($this.sdkPath)/XComGame/Config/DefaultEngine.ini.bak_PRE_ASSET_COOKING"
 
-		# "Inject" our assets into the SDK to make them visible to the cooker
-		Remove-Item $sdkModsContentDir
-		New-Junction $sdkModsContentDir "$($this.modSrcRoot)\ContentForCook"
+		try {
+			# Redirect all the cook output to our local cache
+			# This allows us to not recook everything when switching between projects (e.g. CHL)
+			New-Junction $cookOutputDir $projectCookCacheDir
 
-		if ($firstModCook) {
-			# First do a cook without our assets since gfxCommon.upk still get included in the cook, polluting the TFCs, depsite the config hacks
+			# "Inject" our assets into the SDK to make them visible to the cooker
+			Remove-Item $sdkModsContentDir
+			New-Junction $sdkModsContentDir "$($this.modSrcRoot)\ContentForCook"
 
-            Write-Host "Running first time mod assets cook"
-			$this._InvokeAssetCooker(@(), @())
+			if ($firstModCook) {
+				# First do a cook without our assets since gfxCommon.upk still get included in the cook, polluting the TFCs, depsite the config hacks
 
-			# Now delete the polluted TFCs
-            Get-ChildItem -Path $projectCookCacheDir -Filter "*$($this.assetsCookTfcSuffix).tfc" | Remove-Item
+				Write-Host "Running first time mod assets cook"
+				$this._InvokeAssetCooker(@(), @())
 
-            Write-Host "First time cook done, proceeding with normal"
+				# Now delete the polluted TFCs
+				Get-ChildItem -Path $projectCookCacheDir -Filter "*$($this.assetsCookTfcSuffix).tfc" | Remove-Item
+
+				Write-Host "First time cook done, proceeding with normal"
+			}
+
+			$this._InvokeAssetCooker($this.contentOptions.packagesToMakeSF, $this.contentOptions.umapsToCook)
+		}
+		finally {
+			Write-Host "Cleaninig up the asset cooking hacks"
+
+			# Revert ini
+			try {
+				$this.defaultEngineContentOriginal | Set-Content $this.defaultEnginePath -NoNewline;
+				Write-Host "Reverted $($this.defaultEnginePath)"	
+			}
+			catch {
+				FailureMessage "Failed to revert $($this.defaultEnginePath)"
+				FailureMessage $_
+			}
+			
+
+			# Revert junctions
+
+			try {
+				Remove-Junction $cookOutputDir
+				Write-Host "Removed $cookOutputDir junction"
+			}
+			catch {
+				FailureMessage "Failed to remove $cookOutputDir junction"
+				FailureMessage $_
+			}
+			
+
+			if (![string]::IsNullOrEmpty($previousCookOutputDirPath))
+			{
+				try {
+					if (Test-Path $cookOutputDir) {
+						ThrowFailure "$cookOutputDir still exists, cannot restore previous"
+					}
+
+					Rename-Item $previousCookOutputDirPath "CookedPCConsole"
+					Write-Host "Restored previous $cookOutputDir"	
+				}
+				catch {
+					FailureMessage "Failed to restore previous $cookOutputDir"
+					FailureMessage $_
+				}
+				
+			}
+			
+			try {
+				Remove-Junction $sdkModsContentDir
+				New-Item -Path $sdkModsContentDir -ItemType Directory
+				Write-Host "Restored $sdkModsContentDir"
+			}
+			catch {
+				FailureMessage "Failed to restore $sdkModsContentDir"
+				FailureMessage $_
+			}
 		}
 
-		$this._InvokeAssetCooker($this.contentOptions.packagesToMakeSF, $this.contentOptions.umapsToCook)
-
-		# Revert ini
-		$this.defaultEngineContentOriginal | Set-Content $this.defaultEnginePath -NoNewline;
-		
-		# Revert junctions
-		Remove-Junction $cookOutputDir
-		if (![string]::IsNullOrEmpty($previousCookOutputDirPath))
-		{
-			Rename-Item $previousCookOutputDirPath "CookedPCConsole"
-		}
-		
-		Remove-Junction $sdkModsContentDir
-		New-Item -Path $sdkModsContentDir -ItemType Directory
-		
 		# Prepare the folder for cooked stuff
 		$stagingCookedDir = [io.path]::combine($this.stagingPath, 'CookedPCConsole')
 		New-Item -ItemType "directory" -Path $stagingCookedDir
