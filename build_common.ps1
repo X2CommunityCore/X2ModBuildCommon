@@ -690,7 +690,6 @@ class BuildProject {
 		}
 		
         # TODO: Parse output
-        # * "Adding [...]" lines are useful but also an enourmous spam and stay the same as long as the packages to cook and their references stay the same - remove from output (and save to a file in BuildCache?)
         # * OnlineSubsystemSteamworks and AkAudio cannot be removed from cook and generate 4 errors when mod is built in debug - needs to be ignored
         # * Cooker can crash and the exit code will still be 0 - need to treat as proper failure (also same for script and shader compilers)
 
@@ -888,6 +887,7 @@ function Invoke-Make([string] $makeCmd, [string] $makeFlags, [string] $sdkPath, 
     $messageData = New-Object psobject -property @{
         developmentDirectory = $developmentDirectory
         modSrcRoot = $modSrcRoot
+		crashDetected = $false
     }
 
     # We need another object for the Exited event to set a flag we can monitor from this function.
@@ -931,6 +931,10 @@ function Invoke-Make([string] $makeCmd, [string] $makeFlags, [string] $sdkPath, 
         } else {
             Write-Host $outTxt
         }
+
+		if ($outTxt.StartsWith("Crash Detected")) {
+			$event.MessageData.crashDetected = $true
+		}
     }
 
     # An action for handling data written to stderr. The make cmdlet doesn't seem to write anything here,
@@ -964,9 +968,17 @@ function Invoke-Make([string] $makeCmd, [string] $makeFlags, [string] $sdkPath, 
         Start-Sleep -m 50
     }
 
-    # Explicitly set LASTEXITCODE from the process exit code so the rest of the script
+	$exitCode = $process.ExitCode
+
+	if ($messageData.crashDetected -and ($exitCode -eq 0)) {
+		# If the commandlet crashes, it can still exit with 0, causing us to happily continue the build
+		# To prevent so, fake an error exit code
+		$exitCode = 1
+	}
+
+	# Explicitly set LASTEXITCODE from the process exit code so the rest of the script
     # doesn't need to care if we launched the process in the background or via "&".
-    $global:LASTEXITCODE = $process.ExitCode
+    $global:LASTEXITCODE = $exitCode
 }
 
 
