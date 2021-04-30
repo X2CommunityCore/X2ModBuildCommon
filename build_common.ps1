@@ -477,6 +477,7 @@ class BuildProject {
 		if ($need_shader_precompile)
 		{
 			# build the mod's shader cache
+			# TODO: Commandlet can crash and the exit code will still be 0 - need to treat as proper failure (see script compiler and cooker)
 			Write-Host "Precompiling Shaders..."
 			&"$($this.commandletHostPath)" precompileshaders -nopause platform=pc_sm4 DLC=$($this.modNameCanonical)
 			if ($LASTEXITCODE -ne 0)
@@ -689,10 +690,6 @@ class BuildProject {
 			$mapsString = "$mapsString $umap.umap "
 		}
 		
-        # TODO: Parse output
-        # * OnlineSubsystemSteamworks and AkAudio cannot be removed from cook and generate 4 errors when mod is built in debug - needs to be ignored
-        # * Cooker can crash and the exit code will still be 0 - need to treat as proper failure (also same for script and shader compilers)
-
 		$pinfo = New-Object System.Diagnostics.ProcessStartInfo
 		$pinfo.FileName = $this.commandletHostPath
 		$pinfo.RedirectStandardOutput = $true
@@ -702,9 +699,13 @@ class BuildProject {
 		$pinfo.WorkingDirectory = $this.commandletHostPath | Split-Path
 
 		$messageData = New-Object psobject -property @{
+			foundNativeScriptError = $false
 			foundRelevantError = $false
+
 			lastLineWasAdding = $false
 			permitAdditional = $false
+
+			crashDetected = $false
 		}
 
 		# An action for handling data written to stdout
@@ -736,9 +737,18 @@ class BuildProject {
 				Write-Host $outTxt
 			}
 
-			# Write-Host $outTxt
+			if ($outTxt.StartsWith("Error")) {
+        		# * OnlineSubsystemSteamworks and AkAudio cannot be removed from cook and generate 4 errors when mod is built in debug - needs to be ignored
+				if ($outTxt.Contains("AkAudio") -or $outTxt.Contains("OnlineSubsystemSteamworks")) {
+					$event.MessageData.foundNativeScriptError = $true
+				} else {
+					$event.MessageData.foundRelevantError = $true
+				}
+			}
 
-			# $event.MessageData.foundRelevantError = $true
+			if ($outTxt.StartsWith("Crash Detected")) {
+				$event.MessageData.crashDetected = $true
+			}
 		}
 		
 		# An action for handling data written to stderr
@@ -773,6 +783,27 @@ class BuildProject {
 		while (!$exitData.exited) {
 			# Just spin, otherwise we spend 3 minutes processing all the "Adding [...]" lines
 			# Start-Sleep -m 50
+		}
+
+		if ($messageData.crashDetected) {
+			ThrowFailure "Cooker crash detected"
+		}
+
+		if ($messageData.foundNativeScriptError) {
+			Write-Host ""
+			Write-Host "Detected errors about AkAudio and/or OnlineSubsystemSteamworks - these are safe to ignore."
+			Write-Host "If you want to get rid of them, you would need to build the mod in non-debug mode"
+			Write-Host "at least once - the errors will then go away (until the BuildCache folder is cleared/deleted)"
+			Write-Host ""
+		}
+
+		if ($messageData.foundRelevantError) {
+			ThrowFailure "Found a relevant error while cooking assets"
+		}
+
+		# Backup in case our output parsing didn't catch something
+		if ((!$messageData.foundNativeScriptError) -and ($process.ExitCode -ne 0)) {
+			ThrowFailure "Cooker exited with non-0 exit code"
 		}
 	}
 
