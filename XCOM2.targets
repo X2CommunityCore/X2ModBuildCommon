@@ -34,6 +34,7 @@
             <BuildEntryConfig Required="true" />
           </ParameterGroup>
         <Task>
+            <Reference Include="System.Management.Automation" />
             <Code Language="cs" Source="$(BuildCommonRoot)ExecPowershellBuildEntry.cs" />
         </Task>
     </UsingTask>
@@ -41,7 +42,7 @@
     <!-- Setup default build entrypoint if none is set -->
     <PropertyGroup>
         <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
-        <BuildEntryPs1 Condition=" '$(BuildEntryPs1)' == '' ">$(ScriptsDir)build.ps1</BuildEntryPs1>
+        <BuildEntryPs1 Condition=" '$(BuildEntryPs1)' == '' ">$(ScriptsDir)test.ps1</BuildEntryPs1>
     </PropertyGroup>
 
     <!-- Setup powershell build config -->
