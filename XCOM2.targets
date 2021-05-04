@@ -21,13 +21,12 @@
     </PropertyGroup>
 
     <!-- Prevent spontaneous build warnings/errors -->
-    <!-- <Target Name="GetFrameworkPaths" /> -->
+    <Target Name="GetFrameworkPaths" />
 
     <!-- END Required for ModBuddy -->
 
     <!-- Setup default build entrypoint if none is set -->
     <PropertyGroup>
-        <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck> <!-- TODO: Is this needed? -->
         <BuildEntryPs1 Condition=" '$(BuildEntryPs1)' == '' ">$(ScriptsDir)build.ps1</BuildEntryPs1>
     </PropertyGroup>
 
@@ -47,8 +46,8 @@
 
     <!-- The actual build -->
     <Target Name="Default">
-        <!-- <Message Text="Starting powershell build" /> -->
-        <Exec Command="exit" />
+        <!-- Uncomment if MSBuild insists that project is up to date -->
+        <!-- <Exec Command="exit" /> -->
 
         <!-- Clean up the \..\ from the paths - makes it easier to debug -->
         <InvokePowershellBuild
@@ -58,7 +57,6 @@
             GameInstallPath="$([System.IO.Path]::GetFullPath('$(XCOM2_GamePath)..\\'))"
             BuildEntryConfig="$(BuildEntryConfig)"
         />
-        <!-- <Message Text="Finished powershell build" /> -->
     </Target>
 
     <!-- Task definition -->

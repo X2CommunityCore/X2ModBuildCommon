@@ -1,3 +1,17 @@
+# TODO:
+# .targets incorrect property conditionals
+# Kill xcomgame if the script is canceled since we longer send ctrl+c down the process tree when stopping from msbuild host
+# Redirect and process shader compiler's output
+# Inject warning/error repoting functions from msbuild host, check if they exist in script
+# - https://docs.microsoft.com/en-us/powershell/scripting/developer/hosting/runspace10-sample?view=powershell-7.1
+# - https://stackoverflow.com/questions/3919798/how-to-check-if-a-cmdlet-exists-in-powershell-at-runtime-via-script
+
+# if ($false) {
+# 	function TestFunc($message) {
+# 		Write-Host "TestFunc"
+# 	}
+# }
+
 Write-Host "Build Common Loading"
 
 $ErrorActionPreference = "Stop"
@@ -88,37 +102,46 @@ class BuildProject {
 	}
 
 	[void]InvokeBuild() {
-		$this._ConfirmPaths()
-		$this._LoadContentOptions()
-		$this._SetupUtils()
-		$this._ValidateProjectFiles()
-		$this._Clean()
-		$this._CopyModToSdk()
-		$this._ConvertLocalization()
-		$this._CopyToSrc()
-		$this._RunPreMakeHooks()
-		$this._RunMakeBase()
-		$this._RunMakeMod()
-		if ($this.isHl) {
-			if (-not $this.debug) {
-				$this._RunCookHL()
-			} else {
-				Write-Host "Skipping cooking as debug build"
+		try {
+			TestFunc("From TestFunc");
+			$this._ConfirmPaths()
+			$this._LoadContentOptions()
+			$this._SetupUtils()
+			$this._ValidateProjectFiles()
+			$this._Clean()
+			$this._CopyModToSdk()
+			$this._ConvertLocalization()
+			$this._CopyToSrc()
+			$this._RunPreMakeHooks()
+			$this._RunMakeBase()
+			$this._RunMakeMod()
+			if ($this.isHl) {
+				if (-not $this.debug) {
+					$this._RunCookHL()
+				} else {
+					Write-Host "Skipping cooking as debug build"
+				}
 			}
+			$this._CopyScriptPackages()
+			
+			# The shader step needs to happen before cooking - precompiler gets confused by some inlined materials
+			$this._PrecompileShaders()
+	
+			$this._RunCookAssets()
+	
+			# Do this last as there is no need for it earlier - the cooker obviously has access to the game assets
+			# and precompiling shaders seems to do nothing (I assume they are included in the game's GlobalShaderCache)
+			# TODO: test shaders that were not inlined into maps/SF packages
+			$this._CopyMissingUncooked()
+	
+			$this._FinalCopy()
+
+			SuccessMessage "*** SUCCESS! ***" $this.modNameCanonical
 		}
-		$this._CopyScriptPackages()
-		
-		# The shader step needs to happen before cooking - precompiler gets confused by some inlined materials
-		$this._PrecompileShaders()
-
-		$this._RunCookAssets()
-
-		# Do this last as there is no need for it earlier - the cooker obviously has access to the game assets
-		# and precompiling shaders seems to do nothing (I assume they are included in the game's GlobalShaderCache)
-		# TODO: test shaders that were not inlined into maps/SF packages
-		$this._CopyMissingUncooked()
-
-		$this._FinalCopy()
+		catch {
+			[System.Media.SystemSounds]::Hand.Play()
+			throw
+		}
 	}
 
 	[void]_CheckFlags() {

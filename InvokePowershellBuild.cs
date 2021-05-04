@@ -49,6 +49,7 @@ public class InvokePowershellBuild : Task, ICancelableTask
                 // TODO: More flashy output?
                 Log.LogMessage(MessageImportance.High, record.ToString());
                 // Log.LogMessage(MessageImportance.High, "PREVIOUS IS ERR");
+                Log.LogError(record.ToString());
                 isSuccess = false;
             });
 
