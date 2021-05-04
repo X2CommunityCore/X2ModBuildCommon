@@ -5,7 +5,6 @@ using System.Management.Automation;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 
-
 public class InvokePowershellBuild : Task, ICancelableTask
 {
     [Required] public string BuildEntryPs1 { get; set; }
@@ -31,7 +30,13 @@ public class InvokePowershellBuild : Task, ICancelableTask
                 .AddArgument("Unrestricted")
                 .AddParameter("Scope","CurrentUser");
             
-            _ps.AddStatement().AddCommand(BuildEntryPs1);
+            _ps
+                .AddStatement()
+                .AddCommand(BuildEntryPs1)
+                .AddParameter("srcDirectory", SolutionRoot)
+                .AddParameter("sdkPath", SdkInstallPath)
+                .AddParameter("gamePath", GameInstallPath)
+                .AddParameter("config", BuildEntryConfig);
 
             BindStreamEntryCallback(_ps.Streams.Debug, record => Log.LogMessage(MessageImportance.High, record.ToString()));
             BindStreamEntryCallback(_ps.Streams.Information, record => Log.LogMessage(MessageImportance.High, record.ToString()));
@@ -43,6 +48,7 @@ public class InvokePowershellBuild : Task, ICancelableTask
                 // TODO: Less info than when from console
                 // TODO: More flashy output?
                 Log.LogMessage(MessageImportance.High, record.ToString());
+                // Log.LogMessage(MessageImportance.High, "PREVIOUS IS ERR");
                 isSuccess = false;
             });
 

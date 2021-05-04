@@ -27,19 +27,14 @@
 
     <!-- Setup default build entrypoint if none is set -->
     <PropertyGroup>
-        <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
-        <BuildEntryPs1 Condition=" '$(BuildEntryPs1)' == '' ">$(ScriptsDir)test.ps1</BuildEntryPs1>
+        <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck> <!-- TODO: Is this needed? -->
+        <BuildEntryPs1 Condition=" '$(BuildEntryPs1)' == '' ">$(ScriptsDir)build.ps1</BuildEntryPs1>
     </PropertyGroup>
 
     <!-- Setup powershell build config -->
     <PropertyGroup Condition=" '$(BuildEntryConfig)' == '' ">
         <BuildEntryConfig Condition=" '$(Configuration)' == 'Default' ">default</BuildEntryConfig>
         <BuildEntryConfig Condition=" '$(Configuration)' == 'Debug' ">debug</BuildEntryConfig>
-    </PropertyGroup>
-
-    <!-- Setup powershell build command -->
-    <PropertyGroup>
-        <BuildEntryInvocation>powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file "$(BuildEntryPs1)" -srcDirectory "$(SolutionRoot)" -sdkPath "$(SDKInstallPath)" -gamePath "$(GameInstallPath)" -config "$(BuildEntryConfig)"</BuildEntryInvocation>
     </PropertyGroup>
 
     <!-- Misc targets -->
