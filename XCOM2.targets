@@ -25,20 +25,6 @@
 
     <!-- END Required for ModBuddy -->
 
-    <UsingTask TaskName="ExecPowershellBuildEntry" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v4.0.dll">
-        <ParameterGroup>
-            <BuildEntryPs1 Required="true" />
-            <SolutionRoot Required="true" />
-            <SdkInstallPath Required="true" />
-            <GameInstallPath Required="true" />
-            <BuildEntryConfig Required="true" />
-          </ParameterGroup>
-        <Task>
-            <Reference Include="System.Management.Automation" />
-            <Code Language="cs" Source="$(BuildCommonRoot)ExecPowershellBuildEntry.cs" />
-        </Task>
-    </UsingTask>
-
     <!-- Setup default build entrypoint if none is set -->
     <PropertyGroup>
         <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
@@ -66,16 +52,32 @@
 
     <!-- The actual build -->
     <Target Name="Default">
-        <Message Text="Starting powershell build" />
-        <!-- <Exec Command="ping 127.0.0.1" /> -->
+        <!-- <Message Text="Starting powershell build" /> -->
         <Exec Command="exit" />
-        <ExecPowershellBuildEntry
-            BuildEntryPs1="$(BuildEntryPs1)"
-            SolutionRoot="$(SolutionRoot)"
-            SdkInstallPath="$(XCOM2_UserPath)..\"
-            GameInstallPath="$(XCOM2_GamePath)..\"
+
+        <!-- Clean up the \..\ from the paths - makes it easier to debug -->
+        <InvokePowershellBuild
+            BuildEntryPs1="$([System.IO.Path]::GetFullPath('$(BuildEntryPs1)'))"
+            SolutionRoot="$([System.IO.Path]::GetFullPath('$(SolutionRoot)'))"
+            SdkInstallPath="$([System.IO.Path]::GetFullPath('$(XCOM2_UserPath)..\\'))"
+            GameInstallPath="$([System.IO.Path]::GetFullPath('$(XCOM2_GamePath)..\\'))"
             BuildEntryConfig="$(BuildEntryConfig)"
         />
-        <Message Text="Finished powershell build" />
+        <!-- <Message Text="Finished powershell build" /> -->
     </Target>
+
+    <!-- Task definition -->
+    <UsingTask TaskName="InvokePowershellBuild" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v4.0.dll">
+        <ParameterGroup>
+            <BuildEntryPs1 Required="true" />
+            <SolutionRoot Required="true" />
+            <SdkInstallPath Required="true" />
+            <GameInstallPath Required="true" />
+            <BuildEntryConfig Required="true" />
+          </ParameterGroup>
+        <Task>
+            <Reference Include="System.Management.Automation" />
+            <Code Language="cs" Source="$(BuildCommonRoot)InvokePowershellBuild.cs" />
+        </Task>
+    </UsingTask>
 </Project>
