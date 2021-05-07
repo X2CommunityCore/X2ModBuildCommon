@@ -1,5 +1,4 @@
 # TODO:
-# .targets incorrect property conditionals
 # Kill xcomgame if the script is canceled since we longer send ctrl+c down the process tree when stopping from msbuild host
 # Redirect and process shader compiler's output
 # Inject warning/error repoting functions from msbuild host, check if they exist in script
@@ -103,7 +102,7 @@ class BuildProject {
 
 	[void]InvokeBuild() {
 		try {
-			TestFunc("From TestFunc");
+			# TestFunc("From TestFunc");
 			$this._ConfirmPaths()
 			$this._LoadContentOptions()
 			$this._SetupUtils()

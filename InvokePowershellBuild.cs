@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Management.Automation;
 
@@ -33,22 +34,21 @@ public class InvokePowershellBuild : Task, ICancelableTask
             _ps
                 .AddStatement()
                 .AddCommand(BuildEntryPs1)
-                .AddParameter("srcDirectory", SolutionRoot)
-                .AddParameter("sdkPath", SdkInstallPath)
-                .AddParameter("gamePath", GameInstallPath)
+                .AddParameter("srcDirectory", TrimEndingDirectorySeparator(SolutionRoot))
+                .AddParameter("sdkPath", TrimEndingDirectorySeparator(SdkInstallPath))
+                .AddParameter("gamePath", TrimEndingDirectorySeparator(GameInstallPath))
                 .AddParameter("config", BuildEntryConfig);
 
-            BindStreamEntryCallback(_ps.Streams.Debug, record => Log.LogMessage(MessageImportance.High, record.ToString()));
-            BindStreamEntryCallback(_ps.Streams.Information, record => Log.LogMessage(MessageImportance.High, record.ToString()));
-            BindStreamEntryCallback(_ps.Streams.Verbose, record => Log.LogMessage(MessageImportance.High, record.ToString()));
-            BindStreamEntryCallback(_ps.Streams.Warning, record => Log.LogMessage(MessageImportance.High, record.ToString())); // TODO: More flashy output?
+            BindStreamEntryCallback(_ps.Streams.Debug, record => LogOutput(record.ToString()));
+            BindStreamEntryCallback(_ps.Streams.Information, record => LogOutput(record.ToString()));
+            BindStreamEntryCallback(_ps.Streams.Verbose, record => LogOutput(record.ToString()));
+            BindStreamEntryCallback(_ps.Streams.Warning, record => LogOutput(record.ToString())); // TODO: More flashy output?
 
             BindStreamEntryCallback(_ps.Streams.Error, record =>
             {
                 // TODO: Less info than when from console
                 // TODO: More flashy output?
-                Log.LogMessage(MessageImportance.High, record.ToString());
-                // Log.LogMessage(MessageImportance.High, "PREVIOUS IS ERR");
+                LogOutput(record.ToString());
                 Log.LogError(record.ToString());
                 isSuccess = false;
             });
@@ -82,6 +82,25 @@ public class InvokePowershellBuild : Task, ICancelableTask
 
         _startingMre.Wait();
         _ps.Stop();
+    }
+
+    private void LogOutput (string output)
+    {
+        // This is required to keep the empty lines in the output
+        if (string.IsNullOrEmpty(output)) output = " ";
+
+        Log.LogMessage(MessageImportance.High, output);
+    }
+
+    private static readonly char[] DirectorySeparatorsForTrimming = new char[]
+    {
+        Path.DirectorySeparatorChar,
+        Path.AltDirectorySeparatorChar
+    };
+
+    private static string TrimEndingDirectorySeparator(string path)
+    {
+        return path.TrimEnd(DirectorySeparatorsForTrimming);
     }
 
     private static void BindStreamEntryCallback<T>(PSDataCollection<T> stream, Action<T> handler)

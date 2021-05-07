@@ -27,7 +27,8 @@
 
     <!-- Setup default build entrypoint if none is set -->
     <PropertyGroup>
-        <BuildEntryPs1 Condition=" '$(BuildEntryPs1)' == '' ">$(ScriptsDir)build.ps1</BuildEntryPs1>
+        <BuildEntryFileName Condition=" '$(BuildEntryFileName)' == '' ">build.ps1</BuildEntryFileName>
+        <BuildEntryPs1 Condition=" '$(BuildEntryPs1)' == '' ">$(ScriptsDir)$(BuildEntryFileName)</BuildEntryPs1>
     </PropertyGroup>
 
     <!-- Setup powershell build config -->
