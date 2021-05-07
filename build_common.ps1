@@ -13,7 +13,7 @@ class BuildProject {
 	[string] $projectRoot
 	[string] $sdkPath
 	[string] $gamePath
-	[string] $contentOptionsJsonPath
+	[string] $contentOptionsJsonFilename
 	[int] $publishID = -1
 	[bool] $compileTest = $false
 	[bool] $debug = $false
@@ -50,9 +50,8 @@ class BuildProject {
 		$this.gamePath = $gamePath
 	}
 
-	[void]SetContentOptionsJsonPath($path) {
-		if (!(Test-Path $path)) { ThrowFailure "ContentOptionsJsonPath $path doesn't exist" }
-		$this.contentOptionsJsonPath = $path
+	[void]SetContentOptionsJsonFilename($filename) {
+		$this.contentOptionsJsonFilename = $filename
 	}
 
 	[void]SetWorkshopID([int] $publishID) {
@@ -90,8 +89,8 @@ class BuildProject {
 	[void]InvokeBuild() {
 		try {
 			$this._ConfirmPaths()
-			$this._LoadContentOptions()
 			$this._SetupUtils()
+			$this._LoadContentOptions()
 			$this._ValidateProjectFiles()
 			$this._Clean()
 			$this._CopyModToSdk()
@@ -155,38 +154,6 @@ class BuildProject {
 		}
 	}
 
-	[void]_LoadContentOptions() {
-		Write-Host "Preparing content options"
-
-		if ([string]::IsNullOrEmpty($this.contentOptionsJsonPath))
-		{
-			$this.contentOptions = [PSCustomObject]@{}
-		}
-		else
-		{
-			$this.contentOptions = Get-Content $this.contentOptionsJsonPath | ConvertFrom-Json
-			Write-Host "Loaded $($this.contentOptionsJsonPath)"
-		}
-
-		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "missingUncooked")
-		{
-			Write-Host "No missing uncooked"
-			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'missingUncooked' -Value @()
-		}
-		
-		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "packagesToMakeSF")
-		{
-			Write-Host "No packages to make SF"
-			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'packagesToMakeSF' -Value @()
-		}
-		
-		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "umapsToCook")
-		{
-			Write-Host "No umaps to cook"
-			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'umapsToCook' -Value @()
-		}
-	}
-
 	[void]_SetupUtils() {
 		$this.modSrcRoot = "$($this.projectRoot)\$($this.modNameCanonical)"
 		$this.stagingPath = "$($this.sdkPath)\XComGame\Mods\$($this.modNameCanonical)"
@@ -213,10 +180,53 @@ class BuildProject {
 		}
 	}
 
+	[void]_LoadContentOptions() {
+		Write-Host "Preparing content options"
+
+		if ([string]::IsNullOrEmpty($this.contentOptionsJsonFilename))
+		{
+			$this.contentOptions = [PSCustomObject]@{}
+		}
+		else
+		{
+			$contentOptionsJsonPath = Join-Path $this.modSrcRoot $this.contentOptionsJsonFilename
+			
+			if (!(Test-Path $contentOptionsJsonPath)) {
+				ThrowFailure "ContentOptionsJsonPath $contentOptionsJsonPath doesn't exist"
+			}
+			
+			$this.contentOptions = Get-Content $contentOptionsJsonPath | ConvertFrom-Json
+			Write-Host "Loaded $($contentOptionsJsonPath)"
+		}
+
+		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "missingUncooked")
+		{
+			Write-Host "No missing uncooked"
+			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'missingUncooked' -Value @()
+		}
+		
+		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "packagesToMakeSF")
+		{
+			Write-Host "No packages to make SF"
+			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'packagesToMakeSF' -Value @()
+		}
+		
+		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "umapsToCook")
+		{
+			Write-Host "No umaps to cook"
+			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'umapsToCook' -Value @()
+		}
+	}
+
 	[void]_CopyModToSdk() {
 		$xf = @("*.x2proj")
+		
 		if (-not $this.compileTest) {
 			$xf += "*_Compiletest.uc"
+		}
+
+		if (![string]::IsNullOrEmpty($this.contentOptionsJsonFilename)) {
+			$xf += $this.contentOptionsJsonFilename
 		}
 		
 		Write-Host "Copying mod project to staging..."
