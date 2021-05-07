@@ -499,13 +499,81 @@ class BuildProject {
 		if ($need_shader_precompile)
 		{
 			# build the mod's shader cache
-			# TODO: Commandlet can crash and the exit code will still be 0 - need to treat as proper failure (see script compiler and cooker)
 			Write-Host "Precompiling Shaders..."
-			&"$($this.commandletHostPath)" precompileshaders -nopause platform=pc_sm4 DLC=$($this.modNameCanonical)
-			if ($LASTEXITCODE -ne 0)
-			{
+
+			$pinfo = New-Object System.Diagnostics.ProcessStartInfo
+			$pinfo.FileName = $this.commandletHostPath
+			$pinfo.RedirectStandardOutput = $true
+			$pinfo.RedirectStandardError = $true
+			$pinfo.UseShellExecute = $false
+			$pinfo.Arguments = "precompileshaders -nopause platform=pc_sm4 DLC=$($this.modNameCanonical)"
+			$pinfo.WorkingDirectory = $this.commandletHostPath | Split-Path
+
+			$messageData = New-Object psobject -property @{
+				crashDetected = $false
+			}
+
+			# An action for handling data written to stdout
+			$outAction = {
+				$outTxt = $Event.SourceEventArgs.Data
+
+				Write-Host $outTxt
+
+				if ($outTxt.StartsWith("Crash Detected")) {
+					$event.MessageData.crashDetected = $true
+				}
+			}
+
+			# An action for handling data written to stderr
+			$errAction = {
+				# TODO: Check if anything of value gets written here when something goes wrong
+				$errTxt = $Event.SourceEventArgs.Data
+				Write-Host $errTxt
+			}
+
+			# Set the exited flag on our exit object on process exit.
+			$exitData = New-Object psobject -property @{ exited = $false }
+			$exitAction = {
+				$event.MessageData.exited = $true
+			}
+
+			# Create the process and register for the various events we care about.
+			$process = New-Object System.Diagnostics.Process
+			Register-ObjectEvent -InputObject $process -EventName OutputDataReceived -Action $outAction -MessageData $messageData | Out-Null
+			Register-ObjectEvent -InputObject $process -EventName ErrorDataReceived -Action $errAction | Out-Null
+			Register-ObjectEvent -InputObject $process -EventName Exited -Action $exitAction -MessageData $exitData | Out-Null
+			$process.StartInfo = $pinfo
+
+			# All systems go!
+			$process.Start() | Out-Null
+			$process.BeginOutputReadLine()
+			$process.BeginErrorReadLine()
+
+			# Wait for the process to exit. This is horrible, but using $process.WaitForExit() blocks
+			# the powershell thread so we get no output from make echoed to the screen until the process finishes.
+			# By polling we get regular output as it goes.
+			try {
+				while (!$exitData.exited) {
+					Start-Sleep -m 50
+				}
+			}
+			finally {
+				# If we are stopping MSBuild hosted build, we need to kill the editor manually
+				if (!$exitData.exited) {
+					Write-Host "Killing shader precompiler tree"
+					KillProcessTree $process.Id
+				}
+			}
+
+			if ($messageData.crashDetected) {
+				# TODO: Find a way to cause a shader compiler crash to verify that this works
+				ThrowFailure "Shader precompiler crash detected"
+			}
+
+			if ($process.ExitCode -ne 0) {
 				ThrowFailure "Failed to compile mod shader cache!"
 			}
+
 			Write-Host "Generated Shader Cache."
 
 			Copy-Item -Path "$($this.stagingPath)/Content/$shaderCacheName" -Destination $this.buildCachePath
@@ -882,6 +950,7 @@ class BuildProject {
 			$cook_args += "-final_release"
 		}
 		
+		# TODO: Look for the crash message
 		& "$($this.commandletHostPath)" CookPackages @cook_args >$null 2>&1
 
 		if ($LASTEXITCODE -ne 0)
