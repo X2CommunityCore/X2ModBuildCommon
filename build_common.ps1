@@ -1,16 +1,3 @@
-# TODO:
-# Kill xcomgame if the script is canceled since we longer send ctrl+c down the process tree when stopping from msbuild host
-# Redirect and process shader compiler's output
-# Inject warning/error repoting functions from msbuild host, check if they exist in script
-# - https://docs.microsoft.com/en-us/powershell/scripting/developer/hosting/runspace10-sample?view=powershell-7.1
-# - https://stackoverflow.com/questions/3919798/how-to-check-if-a-cmdlet-exists-in-powershell-at-runtime-via-script
-
-# if ($false) {
-# 	function TestFunc($message) {
-# 		Write-Host "TestFunc"
-# 	}
-# }
-
 Write-Host "Build Common Loading"
 
 $ErrorActionPreference = "Stop"
@@ -102,7 +89,6 @@ class BuildProject {
 
 	[void]InvokeBuild() {
 		try {
-			# TestFunc("From TestFunc");
 			$this._ConfirmPaths()
 			$this._LoadContentOptions()
 			$this._SetupUtils()
