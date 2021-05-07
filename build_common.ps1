@@ -574,6 +574,14 @@ class BuildProject {
 			$firstModCook = $true
 		}
 
+		if (!$firstModCook) {
+			# Even if the directory exists, we need to make sure that the cooker will not attempt to cook gfxCommon_SF
+			# This could happen if the preceding first mod cook was interrupted
+			if ((!(Test-Path "$projectCookCacheDir\GlobalPersistentCookerData.upk")) -or (!(Test-Path "$projectCookCacheDir\gfxCommon_SF.upk"))) {
+				$firstModCook = $true
+			}
+		}
+
 		# Backup the DefaultEngine.ini
 		Copy-Item $this.defaultEnginePath "$($this.sdkPath)/XComGame/Config/DefaultEngine.ini.bak_PRE_ASSET_COOKING"
 
@@ -802,9 +810,18 @@ class BuildProject {
 		# Wait for the process to exit. This is horrible, but using $process.WaitForExit() blocks
 		# the powershell thread so we get no output from make echoed to the screen until the process finishes.
 		# By polling we get regular output as it goes.
-		while (!$exitData.exited) {
-			# Just spin, otherwise we spend 3 minutes processing all the "Adding [...]" lines
-			# Start-Sleep -m 50
+		try {
+			while (!$exitData.exited) {
+				# Just spin, otherwise we spend 3 minutes processing all the "Adding [...]" lines
+				# Start-Sleep -m 50
+			}
+		}
+		finally {
+			# If we are stopping MSBuild hosted build, we need to kill the editor manually
+			if (!$exitData.exited) {
+				Write-Host "Killing cooker tree"
+				KillProcessTree $process.Id
+			}
 		}
 
 		if ($messageData.crashDetected) {
