@@ -1017,9 +1017,18 @@ function Invoke-Make([string] $makeCmd, [string] $makeFlags, [string] $sdkPath, 
     # Wait for the process to exit. This is horrible, but using $process.WaitForExit() blocks
     # the powershell thread so we get no output from make echoed to the screen until the process finishes.
     # By polling we get regular output as it goes.
-    while (!$exitData.exited) {
-        Start-Sleep -m 50
-    }
+	try {
+		while (!$exitData.exited) {
+			Start-Sleep -m 50
+		}	
+	}
+	finally {
+		# If we are stopping MSBuild hosted build, we need to kill the editor manually
+		if (!$exitData.exited) {
+			Write-Host "Killing script compiler tree"
+			KillProcessTree $process.Id
+		}
+	}
 
 	$exitCode = $process.ExitCode
 
@@ -1059,4 +1068,12 @@ function New-Junction ([string] $source, [string] $destination) {
 
 function Remove-Junction ([string] $path) {
 	&"$global:buildCommonSelfPath\junction.exe" -nobanner -accepteula -d "$path"
+}
+
+# https://stackoverflow.com/a/55942155/2588539
+# $process.Kill() works but we really need to kill the child as well, since it's the one which is actually doing work
+# Unfotunately, $process.Kill($true) does nothing 
+function KillProcessTree ([int] $ppid) {
+    Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $ppid } | ForEach-Object { KillProcessTree $_.ProcessId }
+    Stop-Process -Id $ppid
 }
