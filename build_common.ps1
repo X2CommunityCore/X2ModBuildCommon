@@ -15,7 +15,6 @@ class BuildProject {
 	[string] $gamePath
 	[string] $contentOptionsJsonFilename
 	[int] $publishID = -1
-	[bool] $compileTest = $false
 	[bool] $debug = $false
 	[bool] $final_release = $false
 	[string[]] $include = @()
@@ -57,10 +56,6 @@ class BuildProject {
 	[void]SetWorkshopID([int] $publishID) {
 		if ($publishID -le 0) { ThrowFailure "publishID must be >0" }
 		$this.publishID = $publishID
-	}
-
-	[void]EnableCompileTest() {
-		$this.compileTest = $true
 	}
 
 	[void]EnableFinalRelease() {
@@ -220,10 +215,6 @@ class BuildProject {
 
 	[void]_CopyModToSdk() {
 		$xf = @("*.x2proj")
-		
-		if (-not $this.compileTest) {
-			$xf += "*_Compiletest.uc"
-		}
 
 		if (![string]::IsNullOrEmpty($this.contentOptionsJsonFilename)) {
 			$xf += $this.contentOptionsJsonFilename
@@ -271,10 +262,6 @@ class BuildProject {
 			# Loop through all files in subdirectories and fail the build if any filenames are missing inside the project file
 			Get-ChildItem $this.modSrcRoot -Directory | Get-ChildItem -File -Recurse |
 			ForEach-Object {
-				# Compiletest file is allowed to be missing because it's not commited and manually edited
-				if ($_.Name -Match "_Compiletest\.uc$") {
-					return
-				}
 
 				# This catches both [Mod]/Content/ and [Mod]/ContentForCook/
 				if ($_.FullName.Contains("$($this.modNameCanonical)\Content")) {
