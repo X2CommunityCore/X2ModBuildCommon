@@ -363,22 +363,15 @@ class BuildProject {
 		{
 			$scriptsMakeArguments = "$scriptsMakeArguments -debug"
 		}
-		Invoke-Make $this.commandletHostPath $scriptsMakeArguments $this.sdkPath $this.modSrcRoot
-		if ($LASTEXITCODE -ne 0)
-		{
-			ThrowFailure "Failed to compile base game scripts!"
-		}
+		$this._InvokeEditorCmdlet("make", $scriptsMakeArguments)
 		Write-Host "Compiled base game scripts."
 
 		# If we build in final release, we must build the normal scripts too
 		if ($this.final_release -eq $true)
 		{
 			Write-Host "Compiling base game scripts without final_release..."
-			Invoke-Make $this.commandletHostPath "make -nopause -unattended" $this.sdkPath $this.modSrcRoot
-			if ($LASTEXITCODE -ne 0)
-			{
-				ThrowFailure "Failed to compile base game scripts without final_release!"
-			}
+			$scriptsMakeArguments = "make -nopause -unattended"
+			$this._InvokeEditorCmdlet("make", $scriptsMakeArguments)
 		}
 	}
 
@@ -390,11 +383,7 @@ class BuildProject {
 		{
 			$scriptsMakeArguments = "$scriptsMakeArguments -debug"
 		}
-		Invoke-Make $this.commandletHostPath $scriptsMakeArguments $this.sdkPath $this.modSrcRoot
-		if ($LASTEXITCODE -ne 0)
-		{
-			ThrowFailure "Failed to compile mod scripts!"
-		}
+		$this._InvokeEditorCmdlet("make", $scriptsMakeArguments)
 		Write-Host "Compiled mod scripts."
 	}
 
@@ -483,79 +472,9 @@ class BuildProject {
 		{
 			# build the mod's shader cache
 			Write-Host "Precompiling Shaders..."
+			$precompileShadersFlags = "precompileshaders -nopause platform=pc_sm4 DLC=$($this.modNameCanonical)"
 
-			$pinfo = New-Object System.Diagnostics.ProcessStartInfo
-			$pinfo.FileName = $this.commandletHostPath
-			$pinfo.RedirectStandardOutput = $true
-			$pinfo.RedirectStandardError = $true
-			$pinfo.UseShellExecute = $false
-			$pinfo.Arguments = "precompileshaders -nopause platform=pc_sm4 DLC=$($this.modNameCanonical)"
-			$pinfo.WorkingDirectory = $this.commandletHostPath | Split-Path
-
-			$messageData = New-Object psobject -property @{
-				crashDetected = $false
-			}
-
-			# An action for handling data written to stdout
-			$outAction = {
-				$outTxt = $Event.SourceEventArgs.Data
-
-				Write-Host $outTxt
-
-				if ($outTxt.StartsWith("Crash Detected")) {
-					$event.MessageData.crashDetected = $true
-				}
-			}
-
-			# An action for handling data written to stderr
-			$errAction = {
-				# TODO: Check if anything of value gets written here when something goes wrong
-				$errTxt = $Event.SourceEventArgs.Data
-				Write-Host $errTxt
-			}
-
-			# Set the exited flag on our exit object on process exit.
-			$exitData = New-Object psobject -property @{ exited = $false }
-			$exitAction = {
-				$event.MessageData.exited = $true
-			}
-
-			# Create the process and register for the various events we care about.
-			$process = New-Object System.Diagnostics.Process
-			Register-ObjectEvent -InputObject $process -EventName OutputDataReceived -Action $outAction -MessageData $messageData | Out-Null
-			Register-ObjectEvent -InputObject $process -EventName ErrorDataReceived -Action $errAction | Out-Null
-			Register-ObjectEvent -InputObject $process -EventName Exited -Action $exitAction -MessageData $exitData | Out-Null
-			$process.StartInfo = $pinfo
-
-			# All systems go!
-			$process.Start() | Out-Null
-			$process.BeginOutputReadLine()
-			$process.BeginErrorReadLine()
-
-			# Wait for the process to exit. This is horrible, but using $process.WaitForExit() blocks
-			# the powershell thread so we get no output from make echoed to the screen until the process finishes.
-			# By polling we get regular output as it goes.
-			try {
-				while (!$exitData.exited) {
-					Start-Sleep -m 50
-				}
-			}
-			finally {
-				# If we are stopping MSBuild hosted build, we need to kill the editor manually
-				if (!$exitData.exited) {
-					Write-Host "Killing shader precompiler tree"
-					KillProcessTree $process.Id
-				}
-			}
-
-			if ($messageData.crashDetected) {
-				# TODO: Find a way to cause a shader compiler crash to verify that this works
-				ThrowFailure "Shader precompiler crash detected"
-			}
-
-			if ($process.ExitCode -ne 0) {
-				ThrowFailure "Failed to compile mod shader cache!"
-			}
+			$this._InvokeEditorCmdlet("precompileshaders", $precompileShadersFlags)
 
 			Write-Host "Generated Shader Cache."
 
@@ -660,7 +579,7 @@ class BuildProject {
 			$this._InvokeAssetCooker($this.contentOptions.packagesToMakeSF, $this.contentOptions.umapsToCook)
 		}
 		finally {
-			Write-Host "Cleaninig up the asset cooking hacks"
+			Write-Host "Cleaning up the asset cooking hacks"
 
 			# Revert ini
 			try {
@@ -770,131 +689,9 @@ class BuildProject {
 			$umap = $umapsToCook[$i];
 			$mapsString = "$mapsString $umap.umap "
 		}
-		
-		$pinfo = New-Object System.Diagnostics.ProcessStartInfo
-		$pinfo.FileName = $this.commandletHostPath
-		$pinfo.RedirectStandardOutput = $true
-    	$pinfo.RedirectStandardError = $true
-		$pinfo.UseShellExecute = $false
-		$pinfo.Arguments = "CookPackages $mapsString -platform=pcconsole -skipmaps -modcook -TFCSUFFIX=$($this.assetsCookTfcSuffix) -singlethread -unattended -usermode"
-		$pinfo.WorkingDirectory = $this.commandletHostPath | Split-Path
 
-		$messageData = New-Object psobject -property @{
-			foundNativeScriptError = $false
-			foundRelevantError = $false
-
-			lastLineWasAdding = $false
-			permitAdditional = $false
-
-			crashDetected = $false
-		}
-
-		# An action for handling data written to stdout
-		$outAction = {
-			$outTxt = $Event.SourceEventArgs.Data
-			$permitLine = $true # Default to true in case there is something we don't handle
-
-			if ($outTxt.StartsWith("Adding package") -or $outTxt.StartsWith("Adding level") -or $outTxt.StartsWith("Adding script") -or $outTxt.StartsWith("GFx movie package")) {
-				if ($outTxt.Contains("\Mods\")) {
-					$permitLine = $true
-				} else {
-					$permitLine = $false
-
-					if (!$event.MessageData.lastLineWasAdding) {
-						Write-Host "[Adding sdk assets ...]"
-					}
-				}
-
-				$event.MessageData.lastLineWasAdding = !$permitLine
-				$event.MessageData.permitAdditional = $permitLine
-			} elseif ($outTxt.StartsWith("Adding additional")) {
-				$permitLine = $event.MessageData.permitAdditional
-			} else {
-				$event.MessageData.lastLineWasAdding = $false
-				$permitLine = $true
-			}
-
-			if ($permitLine) {
-				Write-Host $outTxt
-			}
-
-			if ($outTxt.StartsWith("Error")) {
-        		# * OnlineSubsystemSteamworks and AkAudio cannot be removed from cook and generate 4 errors when mod is built in debug - needs to be ignored
-				if ($outTxt.Contains("AkAudio") -or $outTxt.Contains("OnlineSubsystemSteamworks")) {
-					$event.MessageData.foundNativeScriptError = $true
-				} else {
-					$event.MessageData.foundRelevantError = $true
-				}
-			}
-
-			if ($outTxt.StartsWith("Crash Detected")) {
-				$event.MessageData.crashDetected = $true
-			}
-		}
-		
-		# An action for handling data written to stderr
-		$errAction = {
-			# TODO: Check if anything of value gets written here when something goes wrong
-			# (when the only problem is "script compiled in debug" nothing gets printed here)
-			$errTxt = $Event.SourceEventArgs.Data
-			Write-Host $errTxt
-		}
-
-		# Set the exited flag on our exit object on process exit.
-		$exitData = New-Object psobject -property @{ exited = $false }
-		$exitAction = {
-			$event.MessageData.exited = $true
-		}
-
-		# Create the process and register for the various events we care about.
-		$process = New-Object System.Diagnostics.Process
-		Register-ObjectEvent -InputObject $process -EventName OutputDataReceived -Action $outAction -MessageData $messageData | Out-Null
-		Register-ObjectEvent -InputObject $process -EventName ErrorDataReceived -Action $errAction | Out-Null
-		Register-ObjectEvent -InputObject $process -EventName Exited -Action $exitAction -MessageData $exitData | Out-Null
-		$process.StartInfo = $pinfo
-
-		# All systems go!
-		$process.Start() | Out-Null
-		$process.BeginOutputReadLine()
-		$process.BeginErrorReadLine()
-
-		# Wait for the process to exit. This is horrible, but using $process.WaitForExit() blocks
-		# the powershell thread so we get no output from make echoed to the screen until the process finishes.
-		# By polling we get regular output as it goes.
-		try {
-			while (!$exitData.exited) {
-				# Just spin, otherwise we spend 3 minutes processing all the "Adding [...]" lines
-				# Start-Sleep -m 50
-			}
-		}
-		finally {
-			# If we are stopping MSBuild hosted build, we need to kill the editor manually
-			if (!$exitData.exited) {
-				Write-Host "Killing cooker tree"
-				KillProcessTree $process.Id
-			}
-		}
-
-		if ($messageData.crashDetected) {
-			ThrowFailure "Cooker crash detected"
-		}
-
-		if ($messageData.foundNativeScriptError) {
-			Write-Host ""
-			Write-Host "Detected errors about AkAudio and/or OnlineSubsystemSteamworks - these are safe to ignore."
-			Write-Host "If you want to get rid of them, you would need to build the mod in non-debug mode"
-			Write-Host "at least once - the errors will then go away (until the BuildCache folder is cleared/deleted)"
-			Write-Host ""
-		}
-
-		if ($messageData.foundRelevantError) {
-			ThrowFailure "Found a relevant error while cooking assets"
-		}
-
-		# Backup in case our output parsing didn't catch something
-		if ((!$messageData.foundNativeScriptError) -and ($process.ExitCode -ne 0)) {
-			ThrowFailure "Cooker exited with non-0 exit code"
-		}
+		$cookFlags = "CookPackages $mapsString -platform=pcconsole -skipmaps -modcook -TFCSUFFIX=$($this.assetsCookTfcSuffix) -singlethread -unattended -usermode"
+		$this._InvokeEditorCmdlet("cookpackages", $cookFlags)
 	}
 
 	[void]_RunCookHL() {
@@ -927,19 +724,13 @@ class BuildProject {
 		# The CookPackages commandlet generally is super unhelpful. The output is basically always the same and errors
 		# don't occur -- it rather just crashes the game. Hence, we just pipe the output to $null
 		Write-Host "Invoking CookPackages (this may take a while)"
-		$cook_args = @("-platform=pcconsole", "-quickanddirty", "-modcook", "-sha", "-multilanguagecook=INT+FRA+ITA+DEU+RUS+POL+KOR+ESN", "-singlethread", "-nopause")
+		$cook_args = @("cookpackages", "-platform=pcconsole", "-quickanddirty", "-modcook", "-sha", "-multilanguagecook=INT+FRA+ITA+DEU+RUS+POL+KOR+ESN", "-singlethread", "-nopause")
 		if ($this.final_release -eq $true)
 		{
 			$cook_args += "-final_release"
 		}
 		
-		# TODO: Look for the crash message
-		& "$($this.commandletHostPath)" CookPackages @cook_args >$null 2>&1
-
-		if ($LASTEXITCODE -ne 0)
-		{
-			ThrowFailure "Failed to cook native script packages!"
-		}
+		$this._InvokeEditorCmdlet("cookpackages", $cook_args)
 
 		Write-Host "Cooked native script packages."
 	}
@@ -984,134 +775,220 @@ class BuildProject {
 		Robocopy.exe "$($this.stagingPath)" "$($finalModPath)" *.* $global:def_robocopy_args
 		Write-Host "Copied mod to game directory."
 	}
+
+	[void]_InvokeEditorCmdlet([string] $cmdlet, [string] $makeFlags) {
+		# Create a ProcessStartInfo object to hold the details of the make command, its arguments, and set up
+		# stdout/stderr redirection.
+		$pinfo = New-Object System.Diagnostics.ProcessStartInfo
+		$pinfo.FileName = $this.commandletHostPath
+		$pinfo.RedirectStandardOutput = $true
+		$pinfo.RedirectStandardError = $true
+		$pinfo.UseShellExecute = $false
+		$pinfo.Arguments = $makeFlags
+		$pinfo.WorkingDirectory = $this.commandletHostPath | Split-Path
+
+
+		# Set the exited flag on our exit object on process exit.
+		# We need another object for the Exited event to set a flag we can monitor from this function.
+		$exitData = New-Object psobject -property @{ exited = $false }
+		$exitAction = {
+			$event.MessageData.exited = $true
+		}
+
+		# An action for handling data written to stderr. The Cmdlets don't seem to write anything here,
+		# or at least not diagnostics, so we can just pass it through.
+		$errAction = {
+			$errTxt = $Event.SourceEventArgs.Data
+			Write-Host $errTxt
+		}
+
+		$messageData = New-Object psobject -property @{
+			crashDetected = $false
+		}
+
+		# Create an stdout filter action appropriate for the Commandlet
+		$outAction = $null
+		switch ($cmdlet)
+		{
+			"make" {
+				# Make wants the Development/Src paths to be rewritten in terms of local project paths
+				$messageData | Add-Member "developmentDirectory" $this.devSrcRoot
+				$messageData | Add-Member "modSrcRoot" "$($this.modSrcRoot)\Src"
+
+				$outAction = {
+					$outTxt = $Event.SourceEventArgs.Data
+					# Match warning/error lines
+					$messagePattern = "^(.*)\(([0-9]*)\) : (.*)$"
+					if (($outTxt -Match "Error|Warning") -And ($outTxt -Match $messagePattern)) {
+						# And just do a regex replace on the sdk Development directory with the mod src directory.
+						# The pattern needs escaping to avoid backslashes in the path being interpreted as regex escapes, etc.
+						$pattern = [regex]::Escape($event.MessageData.developmentDirectory)
+						# n.b. -Replace is case insensitive
+						$replacementTxt = $outtxt -Replace $pattern, $event.MessageData.modSrcRoot
+						$outTxt = $replacementTxt -Replace $messagePattern, '$1:$2 : $3'
+					}
+
+					$summPattern = "^(Success|Failure) - ([0-9]+) error\(s\), ([0-9]+) warning\(s\) \(([0-9]+) Unique Errors, ([0-9]+) Unique Warnings\)"
+					if (-Not ($outTxt -Match "Warning/Error Summary") -And $outTxt -Match "Warning|Error") {
+						if ($outTxt -Match $summPattern) {
+							$numErr = $outTxt -Replace $summPattern, '$2'
+							$numWarn = $outTxt -Replace $summPattern, '$3'
+							if (([int]$numErr) -gt 0) {
+								$clr = "Red"
+							} elseif (([int]$numWarn) -gt 0) {
+								$clr = "Yellow"
+							} else {
+								$clr = "Green"
+							}
+						} else {
+							if ($outTxt -Match "Error") {
+								$clr = "Red"
+							} else {
+								$clr = "Yellow"
+							}
+						}
+						Write-Host $outTxt -ForegroundColor $clr
+					} else {
+						Write-Host $outTxt
+					}
+					CheckForCrash $outTxt $event.MessageData
+				}
+			}
+			"precompileshaders" {
+				# PrecompileShaders needs nothing
+				$outAction = {
+					CheckForCrash $outTxt $event.MessageData
+				}
+			}
+			"cookpackages" {
+				# Cookpackages wants the spam filtered and errors that don't cause a non-zero exit code passed back
+				$messageData | Add-Member "foundNativeScriptError" $false
+				$messageData | Add-Member "foundRelevantZeroExitError" $false
+				$messageData | Add-Member "lastLineWasAdding" $false
+				$messageData | Add-Member "permitAdditional" $false
+
+				$outAction = {
+					$outTxt = $Event.SourceEventArgs.Data
+					$permitLine = $true # Default to true in case there is something we don't handle
+
+					if ($outTxt.StartsWith("Adding package") -or $outTxt.StartsWith("Adding level") -or $outTxt.StartsWith("Adding script") -or $outTxt.StartsWith("GFx movie package")) {
+						if ($outTxt.Contains("\Mods\")) {
+							$permitLine = $true
+						} else {
+							$permitLine = $false
+
+							if (!$event.MessageData.lastLineWasAdding) {
+								Write-Host "[Adding sdk assets ...]"
+							}
+						}
+
+						$event.MessageData.lastLineWasAdding = !$permitLine
+						$event.MessageData.permitAdditional = $permitLine
+					} elseif ($outTxt.StartsWith("Adding additional")) {
+						$permitLine = $event.MessageData.permitAdditional
+					} else {
+						$event.MessageData.lastLineWasAdding = $false
+						$permitLine = $true
+					}
+
+					if ($permitLine) {
+						Write-Host $outTxt
+					}
+
+					if ($outTxt.StartsWith("Error")) {
+						# * OnlineSubsystemSteamworks and AkAudio cannot be removed from cook and generate 4 errors when mod is built in debug - needs to be ignored
+						if ($outTxt.Contains("AkAudio") -or $outTxt.Contains("OnlineSubsystemSteamworks")) {
+							$event.MessageData.foundNativeScriptError = $true
+						} else {
+							$event.MessageData.foundRelevantZeroExitError = $true
+						}
+					}
+
+					CheckForCrash $outTxt $event.MessageData
+				}
+			}
+			default {
+				throw "unreachable"
+			}
+		}
+
+		# Create the process and register for the various events we care about.
+		$process = New-Object System.Diagnostics.Process
+		Register-ObjectEvent -InputObject $process -EventName OutputDataReceived -Action $outAction -MessageData $messageData | Out-Null
+		Register-ObjectEvent -InputObject $process -EventName ErrorDataReceived -Action $errAction | Out-Null
+		Register-ObjectEvent -InputObject $process -EventName Exited -Action $exitAction -MessageData $exitData | Out-Null
+		$process.StartInfo = $pinfo
+
+		# All systems go!
+		$process.Start() | Out-Null
+		$process.BeginOutputReadLine()
+		$process.BeginErrorReadLine()
+
+		# Wait for the process to exit. This is horrible, but using $process.WaitForExit() blocks
+		# the powershell thread so we get no output from make echoed to the screen until the process finishes.
+		# By polling we get regular output as it goes.
+		try {
+			while (!$exitData.exited) {
+				Start-Sleep -m 1
+			}	
+		}
+		finally {
+			# If we are stopping MSBuild hosted build, we need to kill the editor manually
+			if (!$exitData.exited) {
+				Write-Host "Killing $($cmdlet) tree"
+				KillProcessTree $process.Id
+			}
+		}
+
+		if ($messageData.crashDetected) {
+			ThrowFailure "Crash detected in $($cmdlet)"
+		}
+
+		$exitCode = $process.ExitCode
+		switch ($cmdlet)
+		{
+			"make" {
+				if ($exitCode -ne 0) {
+					ThrowFailure "Failed to compile scripts"
+				}
+			}
+			"precompileshaders" {
+				if ($exitCode -ne 0) {
+					ThrowFailure "Failed to compile shaders"
+				}
+			}
+			"cookpackages" {
+				if ($messageData.foundNativeScriptError) {
+					Write-Host ""
+					Write-Host "Detected errors about AkAudio and/or OnlineSubsystemSteamworks - these are safe to ignore."
+					Write-Host "If you want to get rid of them, you would need to build the mod in non-debug mode"
+					Write-Host "at least once - the errors will then go away (until the BuildCache folder is cleared/deleted)"
+					Write-Host ""
+				}
+
+				if ($messageData.foundRelevantZeroExitError) {
+					ThrowFailure "Found a relevant error while cooking (commandlet exited successfully but logs indicate error)"
+				}
+
+				# Backup in case our output parsing didn't catch something
+				if ((!$messageData.foundNativeScriptError) -and ($process.ExitCode -ne 0)) {
+					ThrowFailure "Cooker exited with non-0 exit code"
+				}
+			}
+			default {
+				throw "unreachable"
+			}
+		}
+
+	}
 }
 
-# Helper for invoking the make cmdlet. Captures stdout/stderr and rewrites error and warning lines to fix up the
-# source paths. Since make operates on a copy of the sources copied to the SDK folder, diagnostics print the paths
-# to the copies. If you try to jump to these files (e.g. by tying this output to the build commands in your editor)
-# you'll be editting the copies, which will then be overwritten the next time you build with the sources in your mod folder
-# that haven't been changed.
-function Invoke-Make([string] $makeCmd, [string] $makeFlags, [string] $sdkPath, [string] $modSrcRoot) {
-    # Create a ProcessStartInfo object to hold the details of the make command, its arguments, and set up
-    # stdout/stderr redirection.
-    $pinfo = New-Object System.Diagnostics.ProcessStartInfo
-    $pinfo.FileName = $makeCmd
-    $pinfo.RedirectStandardOutput = $true
-    $pinfo.RedirectStandardError = $true
-    $pinfo.UseShellExecute = $false
-    $pinfo.Arguments = $makeFlags
 
-    # Create an object to hold the paths we want to rewrite: the path to the SDK 'Development' folder
-    # and the 'modSrcRoot' (the directory that holds the .x2proj file). This is needed because the output
-    # is read in an action block that is a separate scope and has no access to local vars/parameters of this
-    # function.
-    $developmentDirectory = Join-Path -Path $sdkPath 'Development'
-    $messageData = New-Object psobject -property @{
-        developmentDirectory = $developmentDirectory
-        modSrcRoot = $modSrcRoot
-		crashDetected = $false
-    }
-
-    # We need another object for the Exited event to set a flag we can monitor from this function.
-    $exitData = New-Object psobject -property @{ exited = $false }
-
-    # An action for handling data written to stdout. The make cmdlet writes all warning and error info to
-    # stdout, so we look for it here.
-    $outAction = {
-        $outTxt = $Event.SourceEventArgs.Data
-        # Match warning/error lines
-        $messagePattern = "^(.*)\(([0-9]*)\) : (.*)$"
-        if (($outTxt -Match "Error|Warning") -And ($outTxt -Match $messagePattern)) {
-            # And just do a regex replace on the sdk Development directory with the mod src directory.
-            # The pattern needs escaping to avoid backslashes in the path being interpreted as regex escapes, etc.
-            $pattern = [regex]::Escape($event.MessageData.developmentDirectory)
-            # n.b. -Replace is case insensitive
-            $replacementTxt = $outtxt -Replace $pattern, $event.MessageData.modSrcRoot
-            $outTxt = $replacementTxt -Replace $messagePattern, '$1:$2 : $3'
-        }
-
-        $summPattern = "^(Success|Failure) - ([0-9]+) error\(s\), ([0-9]+) warning\(s\) \(([0-9]+) Unique Errors, ([0-9]+) Unique Warnings\)"
-        if (-Not ($outTxt -Match "Warning/Error Summary") -And $outTxt -Match "Warning|Error") {
-            if ($outTxt -Match $summPattern) {
-                $numErr = $outTxt -Replace $summPattern, '$2'
-                $numWarn = $outTxt -Replace $summPattern, '$3'
-                if (([int]$numErr) -gt 0) {
-                    $clr = "Red"
-                } elseif (([int]$numWarn) -gt 0) {
-                    $clr = "Yellow"
-                } else {
-                    $clr = "Green"
-                }
-            } else {
-                if ($outTxt -Match "Error") {
-                    $clr = "Red"
-                } else {
-                    $clr = "Yellow"
-                }
-            }
-            Write-Host $outTxt -ForegroundColor $clr
-        } else {
-            Write-Host $outTxt
-        }
-
-		if ($outTxt.StartsWith("Crash Detected")) {
-			$event.MessageData.crashDetected = $true
-		}
-    }
-
-    # An action for handling data written to stderr. The make cmdlet doesn't seem to write anything here,
-    # or at least not diagnostics, so we can just pass it through.
-    $errAction = {
-        $errTxt = $Event.SourceEventArgs.Data
-        Write-Host $errTxt
-    }
-
-    # Set the exited flag on our exit object on process exit.
-    $exitAction = {
-        $event.MessageData.exited = $true
-    }
-
-    # Create the process and register for the various events we care about.
-    $process = New-Object System.Diagnostics.Process
-    Register-ObjectEvent -InputObject $process -EventName OutputDataReceived -Action $outAction -MessageData $messageData | Out-Null
-    Register-ObjectEvent -InputObject $process -EventName ErrorDataReceived -Action $errAction | Out-Null
-    Register-ObjectEvent -InputObject $process -EventName Exited -Action $exitAction -MessageData $exitData | Out-Null
-    $process.StartInfo = $pinfo
-
-    # All systems go!
-    $process.Start() | Out-Null
-    $process.BeginOutputReadLine()
-    $process.BeginErrorReadLine()
-
-    # Wait for the process to exit. This is horrible, but using $process.WaitForExit() blocks
-    # the powershell thread so we get no output from make echoed to the screen until the process finishes.
-    # By polling we get regular output as it goes.
-	try {
-		while (!$exitData.exited) {
-			Start-Sleep -m 50
-		}	
+function CheckForCrash($outTxt, $messageData) {
+	if ($outTxt.StartsWith("Crash Detected") -or $outTxt.Contains("(filename not found)")) {
+		$messageData.crashDetected = $true
 	}
-	finally {
-		# If we are stopping MSBuild hosted build, we need to kill the editor manually
-		if (!$exitData.exited) {
-			Write-Host "Killing script compiler tree"
-			KillProcessTree $process.Id
-		}
-	}
-
-	$exitCode = $process.ExitCode
-
-	if ($messageData.crashDetected -and ($exitCode -eq 0)) {
-		# If the commandlet crashes, it can still exit with 0, causing us to happily continue the build
-		# To prevent so, fake an error exit code
-		$exitCode = 1
-	}
-
-	# Explicitly set LASTEXITCODE from the process exit code so the rest of the script
-    # doesn't need to care if we launched the process in the background or via "&".
-    $global:LASTEXITCODE = $exitCode
 }
-
 
 function FailureMessage($message)
 {
