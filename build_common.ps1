@@ -363,7 +363,10 @@ class BuildProject {
 		{
 			$scriptsMakeArguments = "$scriptsMakeArguments -debug"
 		}
-		$this._InvokeEditorCmdlet("make", $scriptsMakeArguments)
+
+		$handler = [MakeStdoutReceiver]::new($this.devSrcRoot, "$($this.modSrcRoot)\Src")
+		$handler.processDescr = "compiling base game scripts"
+		$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments)
 		Write-Host "Compiled base game scripts."
 
 		# If we build in final release, we must build the normal scripts too
@@ -371,7 +374,9 @@ class BuildProject {
 		{
 			Write-Host "Compiling base game scripts without final_release..."
 			$scriptsMakeArguments = "make -nopause -unattended"
-			$this._InvokeEditorCmdlet("make", $scriptsMakeArguments)
+			$handler = [MakeStdoutReceiver]::new($this.devSrcRoot, "$($this.modSrcRoot)\Src")
+			$handler.processDescr = "compiling base game scripts"
+			$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments)
 		}
 	}
 
@@ -383,7 +388,9 @@ class BuildProject {
 		{
 			$scriptsMakeArguments = "$scriptsMakeArguments -debug"
 		}
-		$this._InvokeEditorCmdlet("make", $scriptsMakeArguments)
+		$handler = [MakeStdoutReceiver]::new($this.devSrcRoot, "$($this.modSrcRoot)\Src")
+		$handler.processDescr = "compiling mod scripts"
+		$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments)
 		Write-Host "Compiled mod scripts."
 	}
 
@@ -474,7 +481,9 @@ class BuildProject {
 			Write-Host "Precompiling Shaders..."
 			$precompileShadersFlags = "precompileshaders -nopause platform=pc_sm4 DLC=$($this.modNameCanonical)"
 
-			$this._InvokeEditorCmdlet("precompileshaders", $precompileShadersFlags)
+			$handler = [PassthroughReceiver]::new()
+			$handler.processDescr = "precompiling shaders"
+			$this._InvokeEditorCmdlet($handler, $precompileShadersFlags)
 
 			Write-Host "Generated Shader Cache."
 
@@ -691,7 +700,9 @@ class BuildProject {
 		}
 
 		$cookFlags = "CookPackages $mapsString -platform=pcconsole -skipmaps -modcook -TFCSUFFIX=$($this.assetsCookTfcSuffix) -singlethread -unattended -usermode"
-		$this._InvokeEditorCmdlet("cookpackages", $cookFlags)
+		$handler = [ModcookReceiver]::new($true)
+		$handler.processDescr = "cooking mod packages"
+		$this._InvokeEditorCmdlet($handler, $cookFlags)
 	}
 
 	[void]_RunCookHL() {
@@ -730,7 +741,9 @@ class BuildProject {
 			$cook_args += "-final_release"
 		}
 		
-		$this._InvokeEditorCmdlet("cookpackages", $cook_args)
+		$handler = [ModcookReceiver]::new($false)
+		$handler.processDescr = "cooking native packages"
+		$this._InvokeEditorCmdlet($handler, $cook_args)
 
 		Write-Host "Cooked native script packages."
 	}
@@ -776,7 +789,7 @@ class BuildProject {
 		Write-Host "Copied mod to game directory."
 	}
 
-	[void]_InvokeEditorCmdlet([string] $cmdlet, [string] $makeFlags) {
+	[void]_InvokeEditorCmdlet([StdoutReceiver] $receiver, [string] $makeFlags) {
 		# Create a ProcessStartInfo object to hold the details of the make command, its arguments, and set up
 		# stdout/stderr redirection.
 		$pinfo = New-Object System.Diagnostics.ProcessStartInfo
@@ -803,113 +816,14 @@ class BuildProject {
 		}
 
 		$messageData = New-Object psobject -property @{
-			crashDetected = $false
+			handler = $receiver
 		}
 
-		# Create an stdout filter action appropriate for the Commandlet
-		$outAction = $null
-		switch ($cmdlet)
-		{
-			"make" {
-				# Make wants the Development/Src paths to be rewritten in terms of local project paths
-				$messageData | Add-Member "developmentDirectory" $this.devSrcRoot
-				$messageData | Add-Member "modSrcRoot" "$($this.modSrcRoot)\Src"
-
-				$outAction = {
-					$outTxt = $Event.SourceEventArgs.Data
-					# Match warning/error lines
-					$messagePattern = "^(.*)\(([0-9]*)\) : (.*)$"
-					if (($outTxt -Match "Error|Warning") -And ($outTxt -Match $messagePattern)) {
-						# And just do a regex replace on the sdk Development directory with the mod src directory.
-						# The pattern needs escaping to avoid backslashes in the path being interpreted as regex escapes, etc.
-						$pattern = [regex]::Escape($event.MessageData.developmentDirectory)
-						# n.b. -Replace is case insensitive
-						$replacementTxt = $outtxt -Replace $pattern, $event.MessageData.modSrcRoot
-						$outTxt = $replacementTxt -Replace $messagePattern, '$1:$2 : $3'
-					}
-
-					$summPattern = "^(Success|Failure) - ([0-9]+) error\(s\), ([0-9]+) warning\(s\) \(([0-9]+) Unique Errors, ([0-9]+) Unique Warnings\)"
-					if (-Not ($outTxt -Match "Warning/Error Summary") -And $outTxt -Match "Warning|Error") {
-						if ($outTxt -Match $summPattern) {
-							$numErr = $outTxt -Replace $summPattern, '$2'
-							$numWarn = $outTxt -Replace $summPattern, '$3'
-							if (([int]$numErr) -gt 0) {
-								$clr = "Red"
-							} elseif (([int]$numWarn) -gt 0) {
-								$clr = "Yellow"
-							} else {
-								$clr = "Green"
-							}
-						} else {
-							if ($outTxt -Match "Error") {
-								$clr = "Red"
-							} else {
-								$clr = "Yellow"
-							}
-						}
-						Write-Host $outTxt -ForegroundColor $clr
-					} else {
-						Write-Host $outTxt
-					}
-					CheckForCrash $outTxt $event.MessageData
-				}
-			}
-			"precompileshaders" {
-				# PrecompileShaders needs nothing
-				$outAction = {
-					CheckForCrash $outTxt $event.MessageData
-				}
-			}
-			"cookpackages" {
-				# Cookpackages wants the spam filtered and errors that don't cause a non-zero exit code passed back
-				$messageData | Add-Member "foundNativeScriptError" $false
-				$messageData | Add-Member "foundRelevantZeroExitError" $false
-				$messageData | Add-Member "lastLineWasAdding" $false
-				$messageData | Add-Member "permitAdditional" $false
-
-				$outAction = {
-					$outTxt = $Event.SourceEventArgs.Data
-					$permitLine = $true # Default to true in case there is something we don't handle
-
-					if ($outTxt.StartsWith("Adding package") -or $outTxt.StartsWith("Adding level") -or $outTxt.StartsWith("Adding script") -or $outTxt.StartsWith("GFx movie package")) {
-						if ($outTxt.Contains("\Mods\")) {
-							$permitLine = $true
-						} else {
-							$permitLine = $false
-
-							if (!$event.MessageData.lastLineWasAdding) {
-								Write-Host "[Adding sdk assets ...]"
-							}
-						}
-
-						$event.MessageData.lastLineWasAdding = !$permitLine
-						$event.MessageData.permitAdditional = $permitLine
-					} elseif ($outTxt.StartsWith("Adding additional")) {
-						$permitLine = $event.MessageData.permitAdditional
-					} else {
-						$event.MessageData.lastLineWasAdding = $false
-						$permitLine = $true
-					}
-
-					if ($permitLine) {
-						Write-Host $outTxt
-					}
-
-					if ($outTxt.StartsWith("Error")) {
-						# * OnlineSubsystemSteamworks and AkAudio cannot be removed from cook and generate 4 errors when mod is built in debug - needs to be ignored
-						if ($outTxt.Contains("AkAudio") -or $outTxt.Contains("OnlineSubsystemSteamworks")) {
-							$event.MessageData.foundNativeScriptError = $true
-						} else {
-							$event.MessageData.foundRelevantZeroExitError = $true
-						}
-					}
-
-					CheckForCrash $outTxt $event.MessageData
-				}
-			}
-			default {
-				throw "unreachable"
-			}
+		# Create an stdout filter action delegating to the actual implementation
+		$outAction = {
+			[StdoutReceiver] $handler = $event.MessageData.handler
+			[string] $outTxt = $Event.SourceEventArgs.Data
+			$handler.ParseLine($outTxt)
 		}
 
 		# Create the process and register for the various events we care about.
@@ -935,58 +849,178 @@ class BuildProject {
 		finally {
 			# If we are stopping MSBuild hosted build, we need to kill the editor manually
 			if (!$exitData.exited) {
-				Write-Host "Killing $($cmdlet) tree"
+				Write-Host "Killing $($receiver.processDescr) tree"
 				KillProcessTree $process.Id
 			}
 		}
 
-		if ($messageData.crashDetected) {
-			ThrowFailure "Crash detected in $($cmdlet)"
-		}
-
 		$exitCode = $process.ExitCode
-		switch ($cmdlet)
-		{
-			"make" {
-				if ($exitCode -ne 0) {
-					ThrowFailure "Failed to compile scripts"
-				}
-			}
-			"precompileshaders" {
-				if ($exitCode -ne 0) {
-					ThrowFailure "Failed to compile shaders"
-				}
-			}
-			"cookpackages" {
-				if ($messageData.foundNativeScriptError) {
-					Write-Host ""
-					Write-Host "Detected errors about AkAudio and/or OnlineSubsystemSteamworks - these are safe to ignore."
-					Write-Host "If you want to get rid of them, you would need to build the mod in non-debug mode"
-					Write-Host "at least once - the errors will then go away (until the BuildCache folder is cleared/deleted)"
-					Write-Host ""
-				}
-
-				if ($messageData.foundRelevantZeroExitError) {
-					ThrowFailure "Found a relevant error while cooking (commandlet exited successfully but logs indicate error)"
-				}
-
-				# Backup in case our output parsing didn't catch something
-				if ((!$messageData.foundNativeScriptError) -and ($process.ExitCode -ne 0)) {
-					ThrowFailure "Cooker exited with non-0 exit code"
-				}
-			}
-			default {
-				throw "unreachable"
-			}
-		}
-
+		$receiver.Finish($exitCode)
 	}
 }
 
+class StdoutReceiver {
+	[bool] $crashDetected = $false
+	[string] $processDescr = ""
 
-function CheckForCrash($outTxt, $messageData) {
-	if ($outTxt.StartsWith("Crash Detected") -or $outTxt.Contains("(filename not found)")) {
-		$messageData.crashDetected = $true
+	[void]ParseLine([string] $outTxt) {
+		if ($outTxt.StartsWith("Crash Detected") -or $outTxt.Contains("(filename not found)")) {
+			$this.crashDetected = $true
+		}
+	}
+
+	[void]Finish([int] $exitCode) {
+		if ($this.crashDetected) {
+			ThrowFailure "Crash detected while $($this.processDescr)"
+		}
+
+		if ($exitCode -ne 0) {
+			ThrowFailure "Failed $($this.processDescr)"
+		}
+	}
+}
+
+class PassthroughReceiver : StdoutReceiver {
+	PassthroughReceiver(){
+	}
+
+	[void]ParseLine([string] $outTxt) {
+		([StdoutReceiver]$this).ParseLine($outTxt)
+		Write-Host $outTxt
+	}
+
+	[void]Finish([int] $exitCode) {
+		([StdoutReceiver]$this).Finish($exitCode)
+	}
+}
+
+class MakeStdoutReceiver : StdoutReceiver {
+	[string] $developmentDirectory
+	[string] $modSrcRoot
+
+	MakeStdoutReceiver(
+		[string]$developmentDirectory,
+		[string]$modSrcRoot
+	){
+		$this.developmentDirectory = $developmentDirectory
+		$this.modSrcRoot = $modSrcRoot
+	}
+
+	[void]ParseLine([string] $outTxt) {
+		([StdoutReceiver]$this).ParseLine($outTxt)
+		$messagePattern = "^(.*)\(([0-9]*)\) : (.*)$"
+		if (($outTxt -Match "Error|Warning") -And ($outTxt -Match $messagePattern)) {
+			# And just do a regex replace on the sdk Development directory with the mod src directory.
+			# The pattern needs escaping to avoid backslashes in the path being interpreted as regex escapes, etc.
+			$pattern = [regex]::Escape($this.developmentDirectory)
+			# n.b. -Replace is case insensitive
+			$replacementTxt = $outtxt -Replace $pattern, $this.modSrcRoot
+			$outTxt = $replacementTxt -Replace $messagePattern, '$1:$2 : $3'
+		}
+
+		$summPattern = "^(Success|Failure) - ([0-9]+) error\(s\), ([0-9]+) warning\(s\) \(([0-9]+) Unique Errors, ([0-9]+) Unique Warnings\)"
+		if (-Not ($outTxt -Match "Warning/Error Summary") -And $outTxt -Match "Warning|Error") {
+			if ($outTxt -Match $summPattern) {
+				$numErr = $outTxt -Replace $summPattern, '$2'
+				$numWarn = $outTxt -Replace $summPattern, '$3'
+				if (([int]$numErr) -gt 0) {
+					$clr = "Red"
+				} elseif (([int]$numWarn) -gt 0) {
+					$clr = "Yellow"
+				} else {
+					$clr = "Green"
+				}
+			} else {
+				if ($outTxt -Match "Error") {
+					$clr = "Red"
+				} else {
+					$clr = "Yellow"
+				}
+			}
+			Write-Host $outTxt -ForegroundColor $clr
+		} else {
+			Write-Host $outTxt
+		}
+	}
+
+	[void]Finish([int] $exitCode) {
+		([StdoutReceiver]$this).Finish($exitCode)
+	}
+}
+
+# TODO: Filter more lines for HL cook? `Hashing`? `SHA: package not found`? `Couldn't find localized resource`?
+# `Warning, Texture file cache waste exceeds`? `Warning, Package _ is not conformed`?
+class ModcookReceiver : StdoutReceiver {
+	[bool] $foundNativeScriptError = $false
+	[bool] $foundRelevantZeroExitError = $false
+	[bool] $lastLineWasAdding = $false
+	[bool] $permitAdditional = $false
+
+	[bool] $modCook
+
+	ModcookReceiver([bool] $modCook){
+		$this.modCook = $modCook
+	}
+	
+	[void]ParseLine([string] $outTxt) {
+		([StdoutReceiver]$this).ParseLine($outTxt)
+		$permitLine = $true # Default to true in case there is something we don't handle
+
+		if ($outTxt.StartsWith("Adding package") -or $outTxt.StartsWith("Adding level") -or $outTxt.StartsWith("Adding script") -or $outTxt.StartsWith("GFx movie package")) {
+			if ($outTxt.Contains("\Mods\")) {
+				$permitLine = $true
+			} else {
+				$permitLine = $false
+
+				if (!$this.lastLineWasAdding) {
+					Write-Host "[Adding sdk assets ...]"
+				}
+			}
+
+			$this.lastLineWasAdding = !$permitLine
+			$this.permitAdditional = $permitLine
+		} elseif ($outTxt.StartsWith("Adding additional")) {
+			$permitLine = $this.permitAdditional
+		} else {
+			$this.lastLineWasAdding = $false
+			$permitLine = $true
+		}
+
+		if ($permitLine) {
+			Write-Host $outTxt
+		}
+
+		if ($outTxt.StartsWith("Error")) {
+			# * OnlineSubsystemSteamworks and AkAudio cannot be removed from cook and generate 4 errors when mod is built in debug - needs to be ignored
+			if ($this.modCook -and ($outTxt.Contains("AkAudio") -or $outTxt.Contains("OnlineSubsystemSteamworks"))) {
+				$this.foundNativeScriptError = $true
+			} else {
+				$this.foundRelevantZeroExitError = $true
+			}
+		}
+	}
+
+	[void]Finish([int] $exitCode) {
+		# Do not call super because we may have a successful cook with a non-zero exit code
+		if ($this.crashDetected) {
+			ThrowFailure "Crash detected while $($this.processDescr)"
+		}
+		if ($this.foundNativeScriptError) {
+			Write-Host ""
+			Write-Host "Detected errors about AkAudio and/or OnlineSubsystemSteamworks - these are safe to ignore."
+			Write-Host "If you want to get rid of them, you would need to build the mod in non-debug mode"
+			Write-Host "at least once - the errors will then go away (until the BuildCache folder is cleared/deleted)"
+			Write-Host ""
+		}
+
+		if ($this.foundRelevantZeroExitError) {
+			ThrowFailure "Found a relevant error while cooking (commandlet exited successfully but logs indicate error)"
+		}
+
+		# Backup in case our output parsing didn't catch something
+		if ((!$this.foundNativeScriptError) -and ($exitCode -ne 0)) {
+			ThrowFailure "Failed $($this.processDescr)"
+		}
 	}
 }
 
