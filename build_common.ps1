@@ -700,7 +700,7 @@ class BuildProject {
 		}
 
 		$cookFlags = "CookPackages $mapsString -platform=pcconsole -skipmaps -modcook -TFCSUFFIX=$($this.assetsCookTfcSuffix) -singlethread -unattended -usermode"
-		$handler = [ModcookReceiver]::new($true)
+		$handler = [ModcookReceiver]::new()
 		$handler.processDescr = "cooking mod packages"
 		$this._InvokeEditorCmdlet($handler, $cookFlags)
 	}
@@ -741,7 +741,9 @@ class BuildProject {
 			$cook_args += "-final_release"
 		}
 		
-		$handler = [ModcookReceiver]::new($false)
+		# TODO: Filter more lines for HL cook? `Hashing`? `SHA: package not found`? `Couldn't find localized resource`?
+		# `Warning, Texture file cache waste exceeds`? `Warning, Package _ is not conformed`?
+		$handler = [PassthroughReceiver]::new()
 		$handler.processDescr = "cooking native packages"
 		$this._InvokeEditorCmdlet($handler, $cook_args)
 
@@ -948,18 +950,13 @@ class MakeStdoutReceiver : StdoutReceiver {
 	}
 }
 
-# TODO: Filter more lines for HL cook? `Hashing`? `SHA: package not found`? `Couldn't find localized resource`?
-# `Warning, Texture file cache waste exceeds`? `Warning, Package _ is not conformed`?
 class ModcookReceiver : StdoutReceiver {
 	[bool] $foundNativeScriptError = $false
-	[bool] $foundRelevantZeroExitError = $false
+	[bool] $foundRelevantError = $false
 	[bool] $lastLineWasAdding = $false
 	[bool] $permitAdditional = $false
 
-	[bool] $modCook
-
-	ModcookReceiver([bool] $modCook){
-		$this.modCook = $modCook
+	ModcookReceiver(){
 	}
 	
 	[void]ParseLine([string] $outTxt) {
@@ -992,10 +989,10 @@ class ModcookReceiver : StdoutReceiver {
 
 		if ($outTxt.StartsWith("Error")) {
 			# * OnlineSubsystemSteamworks and AkAudio cannot be removed from cook and generate 4 errors when mod is built in debug - needs to be ignored
-			if ($this.modCook -and ($outTxt.Contains("AkAudio") -or $outTxt.Contains("OnlineSubsystemSteamworks"))) {
+			if ($outTxt.Contains("AkAudio") -or $outTxt.Contains("OnlineSubsystemSteamworks")) {
 				$this.foundNativeScriptError = $true
 			} else {
-				$this.foundRelevantZeroExitError = $true
+				$this.foundRelevantError = $true
 			}
 		}
 	}
@@ -1013,8 +1010,8 @@ class ModcookReceiver : StdoutReceiver {
 			Write-Host ""
 		}
 
-		if ($this.foundRelevantZeroExitError) {
-			ThrowFailure "Found a relevant error while cooking (commandlet exited successfully but logs indicate error)"
+		if ($this.foundRelevantError) {
+			ThrowFailure "Found a relevant error while cooking assets"
 		}
 
 		# Backup in case our output parsing didn't catch something
