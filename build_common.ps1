@@ -866,7 +866,7 @@ class StdoutReceiver {
 	[string] $processDescr = ""
 
 	[void]ParseLine([string] $outTxt) {
-		if ($outTxt.StartsWith("Crash Detected") -or $outTxt.Contains("(filename not found)")) {
+		if ($outTxt.Contains("Crash Detected") -or $outTxt.Contains("(filename not found)")) {
 			$this.crashDetected = $true
 		}
 	}
