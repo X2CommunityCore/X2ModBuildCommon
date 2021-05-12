@@ -743,7 +743,7 @@ class BuildProject {
 		
 		# TODO: Filter more lines for HL cook? `Hashing`? `SHA: package not found`? `Couldn't find localized resource`?
 		# `Warning, Texture file cache waste exceeds`? `Warning, Package _ is not conformed`?
-		$handler = [PassthroughReceiver]::new()
+		$handler = [BufferingReceiver]::new()
 		$handler.processDescr = "cooking native packages"
 		$this._InvokeEditorCmdlet($handler, $cook_args)
 
@@ -895,6 +895,28 @@ class PassthroughReceiver : StdoutReceiver {
 		([StdoutReceiver]$this).Finish($exitCode)
 	}
 }
+
+class BufferingReceiver : StdoutReceiver {
+	[object] $logLines
+	BufferingReceiver(){
+		$this.logLines = New-Object System.Collections.Generic.List[System.Object]
+	}
+
+	[void]ParseLine([string] $outTxt) {
+		([StdoutReceiver]$this).ParseLine($outTxt)
+		$this.logLines.Add($outTxt)
+	}
+
+	[void]Finish([int] $exitCode) {
+		if (($exitCode -ne 0) -or $this.crashDetected) {
+			foreach ($line in $this.logLines) {
+				Write-Host $line
+			}
+		}
+		([StdoutReceiver]$this).Finish($exitCode)
+	}
+}
+
 
 class MakeStdoutReceiver : StdoutReceiver {
 	[string] $developmentDirectory
