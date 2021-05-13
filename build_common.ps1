@@ -211,6 +211,12 @@ class BuildProject {
 			Write-Host "No umaps to cook"
 			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'umapsToCook' -Value @()
 		}
+
+		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "collectionMapsToCook")
+		{
+			Write-Host "No collection maps to cook"
+			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'collectionMapsToCook' -Value @()
+		}
 	}
 
 	[void]_CopyModToSdk() {
@@ -516,6 +522,7 @@ class BuildProject {
 		
 		$this.defaultEnginePath = "$($this.sdkPath)/XComGame/Config/DefaultEngine.ini"
 		$this.defaultEngineContentOriginal = Get-Content $this.defaultEnginePath | Out-String
+		$engineIniAdditions = $this._BuildEngineIniAdditionsFromContentOptions()
 		
 		$cookOutputDir = [io.path]::combine($this.sdkPath, 'XComGame', 'Published', 'CookedPCConsole')
 		$sdkModsContentDir = [io.path]::combine($this.sdkPath, 'XComGame', 'Content', 'Mods')
@@ -561,9 +568,19 @@ class BuildProject {
 			}
 		}
 
+		# Prepare the list of maps to cook
+		$mapsToCook = $this.contentOptions.umapsToCook
+
+		# Collection maps also need the actual empty umap file created
+		foreach ($mapDef in $this.contentOptions.collectionMapsToCook) {
+			$mapsToCook += $mapDef.name
+			Copy-Item "$global:buildCommonSelfPath\EmptyMap.umap" "$($this.stagingPath)\ContentForCook\$($mapDef.name).umap"
+		}
+
 		# Backup the DefaultEngine.ini
 		Copy-Item $this.defaultEnginePath "$($this.sdkPath)/XComGame/Config/DefaultEngine.ini.bak_PRE_ASSET_COOKING"
 
+		# This try block needs to be kept as small as possible as it puts the SDK into a (temporary) invalid state
 		try {
 			# Redirect all the cook output to our local cache
 			# This allows us to not recook everything when switching between projects (e.g. CHL)
@@ -571,13 +588,13 @@ class BuildProject {
 
 			# "Inject" our assets into the SDK to make them visible to the cooker
 			Remove-Item $sdkModsContentDir
-			New-Junction $sdkModsContentDir "$($this.modSrcRoot)\ContentForCook"
+			New-Junction $sdkModsContentDir "$($this.stagingPath)\ContentForCook"
 
 			if ($firstModCook) {
 				# First do a cook without our assets since gfxCommon.upk still get included in the cook, polluting the TFCs, depsite the config hacks
 
 				Write-Host "Running first time mod assets cook"
-				$this._InvokeAssetCooker(@(), @())
+				$this._InvokeAssetCooker(@(), "")
 
 				# Now delete the polluted TFCs
 				Get-ChildItem -Path $projectCookCacheDir -Filter "*$($this.assetsCookTfcSuffix).tfc" | Remove-Item
@@ -585,7 +602,7 @@ class BuildProject {
 				Write-Host "First time cook done, proceeding with normal"
 			}
 
-			$this._InvokeAssetCooker($this.contentOptions.packagesToMakeSF, $this.contentOptions.umapsToCook)
+			$this._InvokeAssetCooker($mapsToCook, $engineIniAdditions)
 		}
 		finally {
 			Write-Host "Cleaning up the asset cooking hacks"
@@ -649,9 +666,9 @@ class BuildProject {
 		Get-ChildItem -Path $projectCookCacheDir -Filter "*$($this.assetsCookTfcSuffix).tfc" | Copy-Item -Destination $stagingCookedDir
 		
 		# Copy over the maps
-		for ($i = 0; $i -lt $this.contentOptions.umapsToCook.Length; $i++) 
+		for ($i = 0; $i -lt $mapsToCook.Length; $i++) 
 		{
-			$umap = $this.contentOptions.umapsToCook[$i];
+			$umap = $mapsToCook[$i];
 			Copy-Item "$projectCookCacheDir\$umap.upk" -Destination $stagingCookedDir
 		}
 		
@@ -671,7 +688,29 @@ class BuildProject {
 		Write-Host "Assets cook completed"
 	}
 
-	[void]_InvokeAssetCooker ([string[]] $packagesToMakeSF, [string[]] $umapsToCook) {
+	[string]_BuildEngineIniAdditionsFromContentOptions () {
+		$lines = @()
+
+		# SF Standalone packages
+		$lines += "[Engine.PackagesToAlwaysCook]"
+		foreach ($package in $this.contentOptions.packagesToMakeSF) {
+			$lines += "+SeekFreePackage=$package"
+		}
+
+		# Collection maps
+		$lines += "[Engine.PackagesToForceCookPerMap]"
+		foreach ($mapDef in $this.contentOptions.collectionMapsToCook) {
+			$lines += "+Map=$($mapDef.name)"
+
+			foreach ($package in $mapDef.packages) {
+				$lines += "+Package=$package"
+			}
+		}
+
+		return $lines -join "`n"
+	}
+
+	[void]_InvokeAssetCooker ([string[]] $umapsToCook, [string] $engineIniAdditions) {
 		$defaultEngineContentNew = $this.defaultEngineContentOriginal
 		$defaultEngineContentNew = "$defaultEngineContentNew`n; HACKS FOR MOD ASSETS COOKING - $($this.modNameCanonical)"
 
@@ -680,14 +719,11 @@ class BuildProject {
 		$defaultEngineContentNew = "$defaultEngineContentNew`n[Engine.ScriptPackages]`n!EngineNativePackages=Empty`n!NetNativePackages=Empty`n!NativePackages=Empty"
 		$defaultEngineContentNew = "$defaultEngineContentNew`n[Engine.StartupPackages]`n!Package=Empty"
 		$defaultEngineContentNew = "$defaultEngineContentNew`n[Engine.PackagesToAlwaysCook]`n!SeekFreePackage=Empty"
+		
+		# Add our stuff - must come after the !s above
+		$defaultEngineContentNew = "$defaultEngineContentNew`n$engineIniAdditions"
 
-		# Add our standalone seek free packages
-		for ($i = 0; $i -lt $packagesToMakeSF.Length; $i++) 
-		{
-			$package = $packagesToMakeSF[$i];
-			$defaultEngineContentNew = "$defaultEngineContentNew`n+SeekFreePackage=$package"
-		}
-
+		# Ini ready
 		$defaultEngineContentNew | Set-Content $this.defaultEnginePath -NoNewline;
 		
 		# Invoke cooker
