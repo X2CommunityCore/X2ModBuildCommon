@@ -372,7 +372,7 @@ class BuildProject {
 
 		$handler = [MakeStdoutReceiver]::new($this.devSrcRoot, "$($this.modSrcRoot)\Src")
 		$handler.processDescr = "compiling base game scripts"
-		$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments)
+		$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments, 50)
 		Write-Host "Compiled base game scripts."
 
 		# If we build in final release, we must build the normal scripts too
@@ -382,7 +382,7 @@ class BuildProject {
 			$scriptsMakeArguments = "make -nopause -unattended"
 			$handler = [MakeStdoutReceiver]::new($this.devSrcRoot, "$($this.modSrcRoot)\Src")
 			$handler.processDescr = "compiling base game scripts"
-			$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments)
+			$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments, 50)
 		}
 	}
 
@@ -396,7 +396,7 @@ class BuildProject {
 		}
 		$handler = [MakeStdoutReceiver]::new($this.devSrcRoot, "$($this.modSrcRoot)\Src")
 		$handler.processDescr = "compiling mod scripts"
-		$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments)
+		$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments, 50)
 		Write-Host "Compiled mod scripts."
 	}
 
@@ -489,7 +489,7 @@ class BuildProject {
 
 			$handler = [PassthroughReceiver]::new()
 			$handler.processDescr = "precompiling shaders"
-			$this._InvokeEditorCmdlet($handler, $precompileShadersFlags)
+			$this._InvokeEditorCmdlet($handler, $precompileShadersFlags, 10)
 
 			Write-Host "Generated Shader Cache."
 
@@ -738,7 +738,10 @@ class BuildProject {
 		$cookFlags = "CookPackages $mapsString -platform=pcconsole -skipmaps -modcook -TFCSUFFIX=$($this.assetsCookTfcSuffix) -singlethread -unattended -usermode"
 		$handler = [ModcookReceiver]::new()
 		$handler.processDescr = "cooking mod packages"
-		$this._InvokeEditorCmdlet($handler, $cookFlags)
+		$this._InvokeEditorCmdlet($handler, $cookFlags, 0)
+
+		# Even a sleep of 1 ms causes a noticable delay between cooker being done (files created)
+		# and output completing. So, just spin
 	}
 
 	[void]_RunCookHL() {
@@ -781,7 +784,7 @@ class BuildProject {
 		# `Warning, Texture file cache waste exceeds`? `Warning, Package _ is not conformed`?
 		$handler = [BufferingReceiver]::new()
 		$handler.processDescr = "cooking native packages"
-		$this._InvokeEditorCmdlet($handler, $cook_args)
+		$this._InvokeEditorCmdlet($handler, $cook_args, 10)
 
 		Write-Host "Cooked native script packages."
 	}
@@ -827,7 +830,7 @@ class BuildProject {
 		Write-Host "Copied mod to game directory."
 	}
 
-	[void]_InvokeEditorCmdlet([StdoutReceiver] $receiver, [string] $makeFlags) {
+	[void]_InvokeEditorCmdlet([StdoutReceiver] $receiver, [string] $makeFlags, [int] $sleepMsDuration) {
 		# Create a ProcessStartInfo object to hold the details of the make command, its arguments, and set up
 		# stdout/stderr redirection.
 		$pinfo = New-Object System.Diagnostics.ProcessStartInfo
@@ -880,9 +883,15 @@ class BuildProject {
 		# the powershell thread so we get no output from make echoed to the screen until the process finishes.
 		# By polling we get regular output as it goes.
 		try {
-			while (!$exitData.exited) {
-				Start-Sleep -m 1
-			}	
+			if ($sleepMsDuration -lt 1) {
+				while (!$exitData.exited) {
+					# Just spin
+				}		
+			} else {
+				while (!$exitData.exited) {
+					Start-Sleep -m $sleepMsDuration
+				}		
+			}
 		}
 		finally {
 			# If we are stopping MSBuild hosted build, we need to kill the editor manually
