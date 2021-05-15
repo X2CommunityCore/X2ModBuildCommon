@@ -527,6 +527,8 @@ class BuildProject {
 		$cookOutputDir = [io.path]::combine($this.sdkPath, 'XComGame', 'Published', 'CookedPCConsole')
 		$sdkModsContentDir = [io.path]::combine($this.sdkPath, 'XComGame', 'Content', 'Mods')
 		
+		$stagingContentForCook = "$($this.stagingPath)\ContentForCook"
+		
 		# First, we need to check that everything is ready for us to do these shenanigans
 		# This doesn't use locks, so it can break if multiple builds are running at the same time,
 		# so let's hope that mod devs are smart enough to not run simultanoues builds
@@ -572,9 +574,13 @@ class BuildProject {
 		$mapsToCook = $this.contentOptions.umapsToCook
 
 		# Collection maps also need the actual empty umap file created
+		# (unless it's already provided for w/e reason)
 		foreach ($mapDef in $this.contentOptions.collectionMapsToCook) {
 			$mapsToCook += $mapDef.name
-			Copy-Item "$global:buildCommonSelfPath\EmptyMap.umap" "$($this.stagingPath)\ContentForCook\$($mapDef.name).umap"
+
+			if ($null -eq (Get-ChildItem -Path $stagingContentForCook -Filter $mapDef.name -Recurse)) {
+				Copy-Item "$global:buildCommonSelfPath\EmptyMap.umap" "$stagingContentForCook\$($mapDef.name).umap"
+			}
 		}
 
 		# Backup the DefaultEngine.ini
@@ -660,7 +666,9 @@ class BuildProject {
 
 		# Prepare the folder for cooked stuff
 		$stagingCookedDir = [io.path]::combine($this.stagingPath, 'CookedPCConsole')
-		New-Item -ItemType "directory" -Path $stagingCookedDir
+		if (!(Test-Path $stagingCookedDir)) {
+			New-Item -ItemType "directory" -Path $stagingCookedDir
+		}
 		
 		# Copy over the TFC files
 		Get-ChildItem -Path $projectCookCacheDir -Filter "*$($this.assetsCookTfcSuffix).tfc" | Copy-Item -Destination $stagingCookedDir
