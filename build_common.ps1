@@ -200,22 +200,22 @@ class BuildProject {
 			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'missingUncooked' -Value @()
 		}
 		
-		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "packagesToMakeSF")
+		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "sfStandalone")
 		{
 			Write-Host "No packages to make SF"
-			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'packagesToMakeSF' -Value @()
+			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'sfStandalone' -Value @()
 		}
 		
-		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "umapsToCook")
+		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "sfMaps")
 		{
 			Write-Host "No umaps to cook"
-			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'umapsToCook' -Value @()
+			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'sfMaps' -Value @()
 		}
 
-		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "collectionMapsToCook")
+		if (($this.contentOptions.PSobject.Properties | ForEach-Object {$_.Name}) -notcontains "sfCollectionMaps")
 		{
 			Write-Host "No collection maps to cook"
-			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'collectionMapsToCook' -Value @()
+			$this.contentOptions | Add-Member -MemberType NoteProperty -Name 'sfCollectionMaps' -Value @()
 		}
 	}
 
@@ -503,7 +503,7 @@ class BuildProject {
 	}
 
 	[void]_RunCookAssets() {
-		if (($this.contentOptions.packagesToMakeSF.Length -lt 1) -and ($this.contentOptions.umapsToCook.Length -lt 1)) {
+		if (($this.contentOptions.sfStandalone.Length -lt 1) -and ($this.contentOptions.sfMaps.Length -lt 1)) {
 			Write-Host "No asset cooking is requested, skipping"
 			return
 		}
@@ -571,11 +571,11 @@ class BuildProject {
 		}
 
 		# Prepare the list of maps to cook
-		$mapsToCook = $this.contentOptions.umapsToCook
+		$mapsToCook = $this.contentOptions.sfMaps
 
 		# Collection maps also need the actual empty umap file created
 		# (unless it's already provided for w/e reason)
-		foreach ($mapDef in $this.contentOptions.collectionMapsToCook) {
+		foreach ($mapDef in $this.contentOptions.sfCollectionMaps) {
 			$mapsToCook += $mapDef.name
 
 			if ($null -eq (Get-ChildItem -Path $stagingContentForCook -Filter $mapDef.name -Recurse)) {
@@ -681,9 +681,9 @@ class BuildProject {
 		}
 		
 		# Copy over the SF packages
-		for ($i = 0; $i -lt $this.contentOptions.packagesToMakeSF.Length; $i++) 
+		for ($i = 0; $i -lt $this.contentOptions.sfStandalone.Length; $i++) 
 		{
-			$package = $this.contentOptions.packagesToMakeSF[$i];
+			$package = $this.contentOptions.sfStandalone[$i];
             $dest = [io.path]::Combine($stagingCookedDir, "${package}.upk");
 			
 			# Mod assets for some reason refuse to load with the _SF suffix
@@ -701,13 +701,13 @@ class BuildProject {
 
 		# SF Standalone packages
 		$lines += "[Engine.PackagesToAlwaysCook]"
-		foreach ($package in $this.contentOptions.packagesToMakeSF) {
+		foreach ($package in $this.contentOptions.sfStandalone) {
 			$lines += "+SeekFreePackage=$package"
 		}
 
 		# Collection maps
 		$lines += "[Engine.PackagesToForceCookPerMap]"
-		foreach ($mapDef in $this.contentOptions.collectionMapsToCook) {
+		foreach ($mapDef in $this.contentOptions.sfCollectionMaps) {
 			$lines += "+Map=$($mapDef.name)"
 
 			foreach ($package in $mapDef.packages) {
