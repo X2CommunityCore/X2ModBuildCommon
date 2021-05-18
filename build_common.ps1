@@ -110,7 +110,6 @@ class BuildProject {
 	
 			# Do this last as there is no need for it earlier - the cooker obviously has access to the game assets
 			# and precompiling shaders seems to do nothing (I assume they are included in the game's GlobalShaderCache)
-			# TODO: test shaders that were not inlined into maps/SF packages
 			$this._CopyMissingUncooked()
 	
 			$this._FinalCopy()
@@ -462,7 +461,6 @@ class BuildProject {
 		$cachedShaderCachePath = "$($this.buildCachePath)/$($shaderCacheName)"
 		
 		# Try to find a reason to precompile the shaders
-		# TODO: Deleting a content file currently does not trigger re-precompile
 		if (!(Test-Path -Path $cachedShaderCachePath))
 		{
 			$need_shader_precompile = $true
@@ -544,7 +542,6 @@ class BuildProject {
 		}
 
 		# Prepare the cook output folder
-		# TODO: Switch HL cook to junctions as well?
 		$previousCookOutputDirPath = $null
 		if (Test-Path $cookOutputDir)
 		{
