@@ -1,7 +1,19 @@
 # X2ModBuildCommon
-An improved XCOM 2 mod build system
+An improved XCOM 2 mod build system. The following (in no praticular order) are its features/improvements over the default one:
 
-TODO: Features
+* Path rewriting for script errors/warnings so that they no longer point to the temporary copies of files in SDK/Developement/Src
+* Automated including of compile-time dependencies (including CHL) so that you no longer need to pollute your SrcOrig with them
+* Caching of `ModShaderCache` and invoking the shader precompiler only when the mod content files have changed
+* Proper cancelling of the build mid-way (instead of waiting until it completes)
+* Configurable mod workshop ID
+* Automated including of SDK's content packages (for those which are missing in the cooked game) so that you don't need to store them in your project
+* Full HL building: final release compiling and cooking of native script packages
+* Scriptable hooks in the build process
+* Conversion of localization file(s) encoding (UTF8 in the project for correct git merging and UTF16 for correct game loading)
+* Validation of `.x2proj` for cases when devs are using both ModBuddy and VSCode
+* Mod asset cooking (experimental)
+* Correct removal of files from the steamapps/XCOM2/WOTC/XComGame/Mods (built mod) when they are deleted from the project
+* Most features are configurable!
 
 # Getting started
 Foreword: the build system was designed to be flexible in how you want to set it up. This section describes
@@ -19,6 +31,8 @@ your working tree is clean and run the following command:
 ```
 git subtree add --prefix .scripts/X2ModBuildCommon https://github.com/X2CommunityCore/X2ModBuildCommon main --squash
 ```
+
+Note that you also need to add `BuildCache/` to your `.gitignore`
 
 ### Your mod does not use git
 Download the source code of this repository from GitHub. Unzip it and place so that `build_commom.ps1` resides at
