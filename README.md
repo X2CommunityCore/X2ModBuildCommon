@@ -105,10 +105,55 @@ Replace it with following:
 ```
 
 ### VSCode
-TODO: to be filled by someone who uses it on daily basis. For now you check [this](https://github.com/WOTCStrategyOverhaul/CovertInfiltration/blob/9ef28ef1bb79bc7bad7e391fb79caf15b2429161/.vscode/tasks.json) and [this](https://github.com/X2CommunityCore/X2WOTCCommunityHighlander/blob/1304cb8bae4ce403a2ee12db4805a6776f1c32af/.vscode/tasks.json) for inspiration
+
+> FIXME(#1): Rename variables to remove HL references?
+
+First, you need to tell Visual Studio code where to find the game and SDK (similar to the first-time ModBuddy setup).
+To do that, open the "Settings (JSON)" file by using the "Ctrl+Shift+P" shortcut and running "Preferences: Open Settings (JSON)"
+or by clicking "File->Preferences->Settings" and clicking the "Open Settings (JSON)" button on the tab bar. Add the following
+two entries, adjusting paths as necessary.
+
+```json
+    "xcom.highlander.sdkroot": "d:\\Steam\\SteamApps\\common\\XCOM 2 War of the Chosen SDK",
+    "xcom.highlander.gameroot": "d:\\Steam\\SteamApps\\common\\XCOM 2\\XCom2-WarOfTheChosen"
+```
+
+VS Code may tell you that the configuration settings are unknown. This is acceptable and can be ignored.
+
+Next up, you have to tell VS code about your build tasks. Create a folder `.vscode` next to the `.scripts` folder,
+and within it create a `tasks.json` file with the following content:
+
+```json
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\build.ps1' -srcDirectory '${workspaceRoot}' -sdkPath '${config:xcom.highlander.sdkroot}' -gamePath '${config:xcom.highlander.gameroot}' -config 'default'",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Build debug",
+            "type": "shell",
+            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\build.ps1' -srcDirectory '${workspaceRoot}' -sdkPath '${config:xcom.highlander.sdkroot}' -gamePath '${config:xcom.highlander.gameroot}' -config 'debug'",
+            "group": "build",
+            "problemMatcher": []
+        }
+    ]
+}
+```
+
+Note that the `-config 'debug'` or `-config 'default'` build configurations correspond to
+the build configurations in the `build.ps1` entry point created earlier. You can easily add
+existing build tasks with custom configurations by modifying `build.ps1` and configuring the
+`$builder` (see just below!)
+
+> FIXME(microsoft/vscode#24865): Add problem matchers when they can be shared between tasks.
 
 ## Ready!
-You can now successfully build your mod from your IDE using X2ModBuildCommon. Keep reading on to find about what you can configure
+You can now successfully build your mod from your IDE using X2ModBuildCommon. Keep reading on to find about what you can configure.
 
 ## Updating
 The build system is desinged to be version-pinned against your mod - you can continue using the old version as long as it suits your needs, even if a new one is released. If you would like to get the new features/improvements/bugfixes of the new version, the update procedure is simple. 
@@ -122,4 +167,123 @@ git subtree pull --prefix .scripts/X2ModBuildCommon https://github.com/X2Communi
 ```
 
 # Configuration options
-TODO
+
+All the following examples are modifications that could be made to your `build.ps1`.
+
+## ThrowFailure
+
+> FIXME: `ThrowFailure` vs `FailureMessage`?
+
+Throw a failure. Example usage:
+
+```ps1
+switch ($config) {
+  # ...
+  "" { ThrowFailure "Missing build configuration" }
+}
+```
+
+## SetWorkshopID
+
+Override the workshop ID from the x2proj file. Example usage:
+
+```ps1
+# make sure beta builds are never uploaded to the stable workshop page
+if ($config -eq "stable") {
+  $builder.SetWorkshopID(1234567890)
+}
+else {
+  $builder.SetWorkshopID(6789012345)
+}
+```
+
+## EnableFinalRelease
+
+Pass the `-final_release` flag to the compiler for base-game script packages and the Highlander cooker.
+Can only be used for Highlander-style mods that modify native packages. Example usage:
+
+```ps1
+switch ($config) {
+  # ...
+  "final_release" {
+    $builder.EnableFinalRelease()
+  }
+  "stable" {
+    $builder.EnableFinalRelease()
+  }
+}
+```
+
+## EnableDebug
+
+Pass the `-debug` flag to all script compiler invocations. Incompatible with `EnableFinalRelease`, and will skip
+Highlander cooking process (accordingly you have to use `-noseekfreeloading` when launching the game). Example usage:
+
+```ps1
+switch ($config) {
+  # ...
+  "debug" {
+    $builder.EnableDebug()
+  }
+}
+```
+
+## AddPreMakeHook
+
+Add a callback to be executed after all script sources have been added to `Src` but before the compiler is run.
+Example usage:
+
+```ps1
+# Checks if a certain automatically generated file actually compiles, but only with the "compiletest" configuration
+if ($compiletest) {
+    $builder.AddPreMakeHook({
+        Write-Host "Including CHL_Event_Compiletest"
+        # n.b. this copies from the `target` directory where it is generated into, see tasks.json
+        Copy-Item "..\target\CHL_Event_Compiletest.uc" "$sdkPath\Development\Src\X2WOTCCommunityHighlander\Classes\" -Force -WarningAction SilentlyContinue
+    })
+}
+```
+
+The Highlander also uses it to embed the current git commit hash in some source files.
+
+## IncludeSrc
+
+Add dependencies' source files to `Src`. This removes the step where mods whose sources you want to have available
+have to be copied to `SrcOrig`. Example usage (from Covert Infiltration):
+
+```
+$builder.IncludeSrc("$srcDirectory\X2WOTCCommunityHighlander\X2WOTCCommunityHighlander\Src")
+$builder.IncludeSrc("$srcDirectory\X2WOTCCommunityHighlander\Components\DLC2CommunityHighlander\DLC2CommunityHighlander\Src")
+$builder.IncludeSrc("$srcDirectory\SquadSelectAnyTime\SquadSelectAtAnyTime\Src")
+```
+
+## AddToClean
+
+Deletes certain built mods from `SDK/XComGame/Mods`. Usually necessary for dependencies since their script compiler configuration
+files can cause the script compiler to choke. Covert Infiltration does this:
+
+```ps1
+$builder.AddToClean("SquadSelectAtAnyTime")
+```
+
+## SetContentOptionsJsonFilename
+
+Set the mod content cooking configuration file name. Because mod content cooking is such a complex process,
+the package and map configuration is described in a separate file. See [Asset Cooking](https://github.com/X2CommunityCore/X2ModBuildCommon/wiki/Asset-cooking)
+for details.
+
+# Additional features
+
+## extra_globals
+
+This isn't a configuration option, but mods can create an `extra_globals.uci` file in the
+`Src` folder to have the build tool append its contents to `Globals.uci`. This allows mods
+to use custom macros.
+
+Moreover, the `extra_globals.uci` files of any dependencies added via `IncludeSrc` will be merged into `Globals.uci` too. This allows dependency mods to safely use custom macros 
+without causing compilation problems for dependent mods.
+
+## Localization Encoding
+
+Any files in the `Localization` folder will have its encoding rewritten from UTF-8 to UTF-16. This allows tracking
+localization files in the git-compatible UTF-8 text encoding even though the game only supports ASCII and UTF-16.
