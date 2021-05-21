@@ -576,7 +576,8 @@ class BuildProject {
 			$mapsToCook += $mapDef.name
 
 			if ($null -eq (Get-ChildItem -Path $stagingContentForCook -Filter $mapDef.name -Recurse)) {
-				Copy-Item "$global:buildCommonSelfPath\EmptyMap.umap" "$stagingContentForCook\$($mapDef.name).umap"
+				# Important: we cannot use .umap extension here - git lfs (if in use) gets confused during git subtree add
+				Copy-Item "$global:buildCommonSelfPath\EmptyUMap" "$stagingContentForCook\$($mapDef.name).umap"
 			}
 		}
 
