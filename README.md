@@ -101,5 +101,16 @@ TODO: to be filled by someone who uses it on daily basis. For now you check [thi
 ## Ready!
 You can now successfully build your mod from your IDE using X2ModBuildCommon. Keep reading on to find about what you can configure
 
+## Updating
+The build system is desinged to be version-pinned against your mod - you can continue using the old version as long as it suits your needs, even if a new one is released. If you would like to get the new features/improvements/bugfixes of the new version, the update procedure is simple. 
+
+If you don't use git, simply download the new version and overwrite the old files inside the `X2ModBuildCommon` folder.
+
+If you use git, run the same command as before, replacing `add` with `pull`:
+
+```
+git subtree pull --prefix .scripts/X2ModBuildCommon https://github.com/X2CommunityCore/X2ModBuildCommon main --squash
+```
+
 # Configuration options
 TODO
