@@ -32,11 +32,20 @@ your working tree is clean and run the following command:
 git subtree add --prefix .scripts/X2ModBuildCommon https://github.com/X2CommunityCore/X2ModBuildCommon main --squash
 ```
 
-Note that you also need to add `BuildCache/` to your `.gitignore`
-
 ### Your mod does not use git
 Download the source code of this repository from GitHub. Unzip it and place so that `build_commom.ps1` resides at
 `[modRoot]\.scripts\X2ModBuildCommon\build_common.ps1`.
+
+## Ignoring the `BuildCache`
+The build system will create a `[modRoot]\BuildCache` folder which is used for various file-based operations (such
+as recompiling the `ModShaderCache` only when mod's content has changed). This folder is fully managed by the build
+system and normally you should never open it. It is also safe to delete at any time (e.g. if you want to
+force a full rebuild).
+
+As such, this folder is not meant to be shared with other developers working on the project or stored in
+backups/previous versions (e.g. when using a VCS) - this can lead to incorrect behaviour.
+
+If you are using git, you should add it (`BuildCache/`) to your `.gitignore`
 
 ## Setting up the build entrypoint
 Create `[modRoot]\.scripts\build.ps1` with the following content:
