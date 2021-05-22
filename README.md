@@ -318,3 +318,32 @@ without causing compilation problems for dependent mods.
 
 Any files in the `Localization` folder will have its encoding rewritten from UTF-8 to UTF-16. This allows tracking
 localization files in the git-compatible UTF-8 text encoding even though the game only supports ASCII and UTF-16.
+
+# ModBuddy project customization
+
+You can customize your `.x2proj` using the following properties:
+
+Property | Default value | Notes
+-------- | ------------- | -----
+`SolutionRoot` | None (**required**) | The path to folder which houses your `.XCOM_sln` file
+`ScriptsDir` | None | Required if you don't set `BuildEntryPs1`. Ignored otherwise
+`BuildCommonRoot` | None (**required**) | The path to folder which houses the `InvokePowershellBuild.cs` file
+`BuildEntryFileName` | `build.ps1` | Required if you don't set `BuildEntryPs1`. Ignored otherwise
+`BuildEntryPs1` | `$(ScriptsDir)$(BuildEntryFileName)` |
+`BuildEntryConfig` | `default` or `debug` | Will be passed to your build entrypoint. Default is derived from `$(Configuration)` (build configuration dropdown)
+
+Hint: if you want to add other build configurations, you can let the `default` and `debug` ones be handeled
+by the provided `XCOM2.targets`. Example from CHL:
+
+```xml
+  <PropertyGroup>
+    <SolutionRoot>$(MSBuildProjectDirectory)\..\</SolutionRoot>
+    <ScriptsDir>$(SolutionRoot).scripts\</ScriptsDir>
+    <BuildCommonRoot>$(ScriptsDir)X2ModBuildCommon\</BuildCommonRoot>
+
+    <!-- Default and debug are handeled by the .targets automatically -->
+    <BuildEntryConfig Condition=" '$(Configuration)' == 'Final release' ">final_release</BuildEntryConfig>
+    <BuildEntryConfig Condition=" '$(Configuration)' == 'Compiletest' ">compiletest</BuildEntryConfig>
+    <BuildEntryConfig Condition=" '$(Configuration)' == 'Workshop stable version' ">stable</BuildEntryConfig>
+  </PropertyGroup>
+```
