@@ -267,11 +267,41 @@ files can cause the script compiler to choke. Covert Infiltration does this:
 $builder.AddToClean("SquadSelectAtAnyTime")
 ```
 
-## SetContentOptionsJsonFilename
+## Content options
 
-Set the mod content cooking configuration file name. Because mod content cooking is such a complex process,
-the package and map configuration is described in a separate file. See [Asset Cooking](https://github.com/X2CommunityCore/X2ModBuildCommon/wiki/Asset-cooking)
-for details.
+You can provide a "content options" file that will determine some additional content-related steps. This file should be checked
+in to your VSC (e.g. tracked by git) and must reside next to your `.x2proj` (note that the file will not be included in the
+final built mod). If using Modbuddy, you can add the file to the project for easier editing. 
+
+Assuming the file is named `ContentOptions.json`:
+
+```ps1
+$builder.SetContentOptionsJsonFilename("ContentOptions.json")
+```
+
+Four options are avaliable: `missingUncooked`, `sfStandalone`, `sfMaps`, `sfCollectionMaps`. Omitting an option (or the file entirely)
+is treated the same as setting it to an empty array
+
+### Including missing uncooked
+
+In case your mod depends on some assets that were not shipped in a seek free package, you can automatically include it with your mod.
+Example from Covert Infiltration:
+
+```json
+{
+    "missingUncooked": [
+        "CIN_TroopTransport.upk",
+        "PCP_Archetypes_XPACK.upk"
+    ]
+}
+```
+
+**IMPORTANT**: you need to be on the `full_content` branch of the SDK for this to work.
+
+### Asset cooking
+
+The rest of the options are for the mod assets cooking. Because it is such a complex process, the package and map configuration is
+described in a separate file. See [Asset Cooking](https://github.com/X2CommunityCore/X2ModBuildCommon/wiki/Asset-cooking) for details.
 
 # Additional features
 
