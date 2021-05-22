@@ -347,3 +347,12 @@ by the provided `XCOM2.targets`. Example from CHL:
     <BuildEntryConfig Condition=" '$(Configuration)' == 'Workshop stable version' ">stable</BuildEntryConfig>
   </PropertyGroup>
 ```
+
+# Things to watch out for
+
+Note that you can always check the issue tracker: https://github.com/X2CommunityCore/X2ModBuildCommon/issues?q=is%3Aissue+is%3Aopen+label%3Abug
+
+## Deleting content files
+
+If you **delete** content files (e.g. moved to a different mod or just completely removed) the current caching logic (e.g. for the
+shader cache) might not recognize it. As such, it's recommended that you simply delete the `BuildCache` folder in such cases.
