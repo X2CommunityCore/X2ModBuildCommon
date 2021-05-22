@@ -13,6 +13,7 @@ An improved XCOM 2 mod build system. The following (in no praticular order) are 
 * Validation of `.x2proj` for cases when devs are using both ModBuddy and VSCode
 * Mod asset cooking (experimental)
 * Correct removal of files from the steamapps/XCOM2/WOTC/XComGame/Mods (built mod) when they are deleted from the project
+* Mod-defined global macros (without explicit `include`s and without messing with your `SrcOrig`)
 * Most features are configurable!
 
 # Getting started
