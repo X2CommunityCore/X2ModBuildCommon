@@ -122,7 +122,8 @@ two entries, adjusting paths as necessary.
 VS Code may tell you that the configuration settings are unknown. This is acceptable and can be ignored.
 
 Next up, you have to tell VS code about your build tasks. Create a folder `.vscode` next to the `.scripts` folder,
-and within it create a `tasks.json` file with the following content:
+and within it create a `tasks.json` file with the following content (replacing `MY_MOD_NAME` with the mod project
+name in the "Clean" task):
 
 ```json
 {
@@ -139,6 +140,13 @@ and within it create a `tasks.json` file with the following content:
             "label": "Build debug",
             "type": "shell",
             "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\build.ps1' -srcDirectory '${workspaceRoot}' -sdkPath '${config:xcom.highlander.sdkroot}' -gamePath '${config:xcom.highlander.gameroot}' -config 'debug'",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Clean",
+            "type": "shell",
+            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\clean.ps1' -modName 'MY_MOD_NAME' -srcDirectory '${workspaceRoot}' -sdkPath '${config:xcom.highlander.sdkroot}' -gamePath '${config:xcom.highlander.gameroot}'",
             "group": "build",
             "problemMatcher": []
         }
