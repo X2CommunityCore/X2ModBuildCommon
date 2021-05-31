@@ -8,34 +8,35 @@ Param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 
-# Deletes all cached build artifacts
+if ($null -eq $modName -or $modName -eq "") {
+    throw "`$modName empty???"
+}
 
+Write-Host "Deleting all cached build artifacts..."
 
-Write-Host "Removing $sdkPath/XComGame/lastBuildDetails.json"
-Remove-Item -Force "$sdkPath/XComGame/lastBuildDetails.json" -WarningAction SilentlyContinue
+$files = @(
+    "$sdkPath\XComGame\lastBuildDetails.json",
+    "$sdkPath\XComGame\Script\*.u",
+    "$sdkPath\XComGame\ScriptFinalRelease\*.u",
+    "$sdkPath\XComGame\Content\LocalShaderCache-PC-D3D-SM4.upk"
+)
 
-Write-Host "Removing $srcDirectory/BuildCache"
-Remove-Item -Recurse -Force "$srcDirectory/BuildCache" -WarningAction SilentlyContinue
+$folders = @(
+    "$srcDirectory\BuildCache",
+    "$sdkPath\Development\Src\*",
+    "$sdkPath\XComGame\Mods\*",
+    "$gamePath\XComGame\Mods\$modName",
+    "$sdkPath\XComGame\Published"
+)
 
-Write-Host "Removing $sdkPath/Development/Src/*"
-Remove-Item -Recurse -Force "$sdkPath/Development/Src/*" -WarningAction SilentlyContinue
+$files | ForEach-Object {
+    Write-Host "Removing file(s) $($_)"
+    Remove-Item -Force $_ -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+}
 
-Write-Host "Removing $sdkPath/XComGame/Mods/*"
-Remove-Item -Recurse -Force "$sdkPath/XComGame/Mods/*" -WarningAction SilentlyContinue
+$folders | ForEach-Object {
+    Write-Host "Removing folders(s) $($_)"
+    Remove-Item -Recurse -Force $_ -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+}
 
-Write-Host "Removing $gamePath/XComGame/Mods/$modName"
-Remove-Item -Recurse -Force "$gamePath/XComGame/Mods/$modName" -WarningAction SilentlyContinue
-
-Write-Host "Removing $sdkPath/XComGame/Published"
-Remove-Item -Recurse -Force "$sdkPath/XComGame/Published" -WarningAction SilentlyContinue
-
-Write-Host "Removing $sdkPath/XComGame/Script/*.u"
-Remove-Item -Force "$sdkPath/XComGame/Script/*.u" -WarningAction SilentlyContinue
-
-Write-Host "Removing $sdkPath/XComGame/ScriptFinalRelease/*.u"
-Remove-Item -Force "$sdkPath/XComGame/ScriptFinalRelease/*.u" -WarningAction SilentlyContinue
-
-Write-Host "Removing $sdkPath/XComGame/Content/LocalShaderCache-PC-D3D-SM4.upk"
-Remove-Item -Force "$sdkPath/XComGame/Content/LocalShaderCache-PC-D3D-SM4.upk" -WarningAction SilentlyContinue
-
-Write-Host "Cleaned"
+Write-Host "Cleaned."

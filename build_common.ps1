@@ -657,6 +657,11 @@ class BuildProject {
 		try {
 			# Redirect all the cook output to our local cache
 			# This allows us to not recook everything when switching between projects (e.g. CHL)
+			# Ensure parent directory exists
+			$cookOutputParentDir = [io.path]::combine($this.sdkPath, 'XComGame', 'Published')
+			if (-not (Test-Path -Path $cookOutputParentDir)) {
+				New-Item -Path $cookOutputParentDir -Type Directory
+			}
 			New-Junction $cookOutputDir $projectCookCacheDir
 
 			# "Inject" our assets into the SDK to make them visible to the cooker
@@ -1178,11 +1183,19 @@ function SuccessMessage($message, $modNameCanonical)
 }
 
 function New-Junction ([string] $source, [string] $destination) {
+	Write-Host "Creating Junction: $source -> $destination"
 	&"$global:buildCommonSelfPath\junction.exe" -nobanner -accepteula "$source" "$destination"
+	if ($LASTEXITCODE -ne 0) {
+		FailureMessage "Failed to create junction!"
+	}
 }
 
 function Remove-Junction ([string] $path) {
+	Write-Host "Removing Junction: $path"
 	&"$global:buildCommonSelfPath\junction.exe" -nobanner -accepteula -d "$path"
+	if ($LASTEXITCODE -ne 0) {
+		FailureMessage "Failed to remove junction!"
+	}
 }
 
 # https://stackoverflow.com/a/55942155/2588539
