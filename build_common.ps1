@@ -14,7 +14,7 @@ class BuildProject {
 	[string] $sdkPath
 	[string] $gamePath
 	[string] $contentOptionsJsonFilename
-	[int] $publishID = -1
+	[long] $publishID = -1
 	[bool] $debug = $false
 	[bool] $final_release = $false
 	[string[]] $include = @()
@@ -54,7 +54,7 @@ class BuildProject {
 		$this.contentOptionsJsonFilename = $filename
 	}
 
-	[void]SetWorkshopID([int] $publishID) {
+	[void]SetWorkshopID([long] $publishID) {
 		if ($publishID -le 0) { ThrowFailure "publishID must be >0" }
 		$this.publishID = $publishID
 	}
