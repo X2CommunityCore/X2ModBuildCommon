@@ -682,6 +682,10 @@ class BuildProject {
 
 			$this._InvokeAssetCooker($mapsToCook, $engineIniAdditions)
 		}
+		catch {
+			FailureMessage "Failed to cook packages"
+			FailureMessage $_
+		}
 		finally {
 			Write-Host "Cleaning up the asset cooking hacks"
 
@@ -1185,17 +1189,11 @@ function SuccessMessage($message, $modNameCanonical)
 function New-Junction ([string] $source, [string] $destination) {
 	Write-Host "Creating Junction: $source -> $destination"
 	&"$global:buildCommonSelfPath\junction.exe" -nobanner -accepteula "$source" "$destination"
-	if ($LASTEXITCODE -ne 0) {
-		FailureMessage "Failed to create junction!"
-	}
 }
 
 function Remove-Junction ([string] $path) {
 	Write-Host "Removing Junction: $path"
 	&"$global:buildCommonSelfPath\junction.exe" -nobanner -accepteula -d "$path"
-	if ($LASTEXITCODE -ne 0) {
-		FailureMessage "Failed to remove junction!"
-	}
 }
 
 # https://stackoverflow.com/a/55942155/2588539
