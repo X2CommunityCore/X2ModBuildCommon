@@ -1,0 +1,32 @@
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <AssemblyName>X2ModBuildCommon</AssemblyName>
+    <OutputPath>..\..\target\cache\X2ModBuildCommon\</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="InvokePowershellTask.cs" />
+  </ItemGroup>
+
+  <Target Name="Build" Inputs="@(Compile)" Outputs="$(OutputPath)$(AssemblyName).dll">
+    <MakeDir Directories="$(OutputPath)" Condition="!Exists('$(OutputPath)')" />
+    <ItemGroup>
+      <Assemblies Include="System.dll" />
+      <Assemblies Include="mscorlib.dll" />
+      <Assemblies Include="Microsoft.Build.Framework.dll" />
+      <Assemblies Include="Microsoft.Build.Utilities.v4.0.dll" />
+      <!--<Assemblies Include="System.Management.Automation.dll" />-->
+      <Assemblies Include="C:\Windows\Microsoft.NET\assembly\GAC_MSIL\System.Management.Automation\v4.0_3.0.0.0__31bf3856ad364e35\System.Management.Automation.dll" />
+      <!--<Assemblies Include="C:\Program Files (x86)\Reference Assemblies\Microsoft\WindowsPowerShell\3.0\System.Management.Automation.dll" />-->
+      <!--<Assemblies Include="C:\WINDOWS\assembly\GAC_MSIL\System.Management.Automation\1.0.0.0__31bf3856ad364e35\System.Management.Automation.dll" />-->
+    </ItemGroup>
+    <Csc
+      Sources="@(Compile)" OutputAssembly="$(OutputPath)$(AssemblyName).dll"
+      TargetType="Library"
+      References="@(Assemblies)"
+    />
+  </Target>
+  <Target Name="Clean" >
+    <Delete Files="$(OutputPath)$(AssemblyName).dll" />
+  </Target>
+  <Target Name="Rebuild" DependsOnTargets="Clean;Build" />
+</Project>

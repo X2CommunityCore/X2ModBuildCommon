@@ -76,17 +76,5 @@
     </Target>
 
     <!-- Task definition -->
-    <UsingTask TaskName="InvokePowershellTask" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v4.0.dll">
-        <ParameterGroup>
-            <EntryPs1 Required="true" />
-            <SolutionRoot Required="true" />
-            <SdkInstallPath Required="true" />
-            <GameInstallPath Required="true" />
-            <AdditionalArgs ParameterType="Microsoft.Build.Framework.ITaskItem[]" Required="false" />
-          </ParameterGroup>
-        <Task>
-            <Reference Include="System.Management.Automation" />
-            <Code Language="cs" Source="$(BuildCommonRoot)InvokePowershellTask.cs" />
-        </Task>
-    </UsingTask>
+    <UsingTask TaskName="InvokePowershellTask" AssemblyFile="$(BuildCommonRoot)X2ModBuildCommon.dll" />
 </Project>
