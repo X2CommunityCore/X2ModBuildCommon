@@ -14,7 +14,7 @@ class BuildProject {
 	[string] $sdkPath
 	[string] $gamePath
 	[string] $contentOptionsJsonFilename
-	[int] $publishID = -1
+	[long] $publishID = -1
 	[bool] $debug = $false
 	[bool] $final_release = $false
 	[string[]] $include = @()
@@ -28,6 +28,7 @@ class BuildProject {
 	[string] $commandletHostPath
 	[string] $buildCachePath
 	[string] $modcookdir
+	[string] $makeFingerprintsPath
 	[string[]] $thismodpackages
 	[bool] $isHl
 	[bool] $cookHL
@@ -53,7 +54,7 @@ class BuildProject {
 		$this.contentOptionsJsonFilename = $filename
 	}
 
-	[void]SetWorkshopID([int] $publishID) {
+	[void]SetWorkshopID([long] $publishID) {
 		if ($publishID -le 0) { ThrowFailure "publishID must be >0" }
 		$this.publishID = $publishID
 	}
@@ -87,13 +88,15 @@ class BuildProject {
 			$this._SetupUtils()
 			$this._LoadContentOptions()
 			$this._ValidateProjectFiles()
-			$this._Clean()
+			$this._CleanAdditional()
 			$this._CopyModToSdk()
 			$this._ConvertLocalization()
 			$this._CopyToSrc()
 			$this._RunPreMakeHooks()
+			$this._CheckCleanCompiled()
 			$this._RunMakeBase()
 			$this._RunMakeMod()
+			$this._RecordCoreTimestamp()
 			if ($this.isHl) {
 				if (-not $this.debug) {
 					$this._RunCookHL()
@@ -172,6 +175,21 @@ class BuildProject {
 		{
 			New-Item -ItemType "directory" -Path $this.buildCachePath
 		}
+
+		$this.makeFingerprintsPath = "$($this.sdkPath)\XComGame\lastBuildDetails.json"
+		$lastBuildDetails = if (Test-Path $this.makeFingerprintsPath) {
+			Get-Content $this.makeFingerprintsPath | ConvertFrom-Json
+		} else {
+			[PSCustomObject]@{}
+		}
+
+		@("buildMode", "globalsHash", "coreTimestamp") | ForEach-Object {
+			if(-not (Get-Member -InputObject $lastBuildDetails -name $_ -Membertype Properties)) {
+				$lastBuildDetails | Add-Member -NotePropertyName $_ -NotePropertyValue "unknown"
+			}
+		}
+
+		$lastBuildDetails | ConvertTo-Json | Set-Content -Path $this.makeFingerprintsPath
 	}
 
 	[void]_LoadContentOptions() {
@@ -293,13 +311,7 @@ class BuildProject {
 	}
 
 	
-	[void]_Clean() {
-		Write-Host "Cleaning mod project at $($this.stagingPath)..."
-		if (Test-Path $this.stagingPath) {
-			Remove-Item $this.stagingPath -Recurse -WarningAction SilentlyContinue
-		}
-		Write-Host "Cleaned."
-
+	[void]_CleanAdditional() {
 		Write-Host "Cleaning additional mods..."
 		# clean
 		foreach ($modName in $this.clean) {
@@ -350,10 +362,66 @@ class BuildProject {
 	}
 
 	[void]_RunPreMakeHooks() {
-		Write-Host "Invoking pre-Make hooks"
-		foreach ($hook in $this.preMakeHooks) {
-			$hook.Invoke()
+		if ($this.preMakeHooks.Count -gt 0) {
+			Write-Host "Invoking pre-Make hooks..."
+			foreach ($hook in $this.preMakeHooks) {
+				$hook.Invoke()
+			}
+			Write-Host "Invoked."
 		}
+	}
+
+	[string]_GetCoreMtime() {
+		if (Test-Path "$($this.sdkPath)/XComGame/Script/Core.u") {
+			return Get-Item "$($this.sdkPath)/XComGame/Script/Core.u" | Select-Object -ExpandProperty LastWriteTime
+		} else {
+			return "missing"
+		}
+	}
+
+	[void]_CheckCleanCompiled() {
+		# #16: Switching between debug and release causes an error in the make commandlet if script packages aren't deleted.
+		# #20: Changes to Globals.uci aren't tracked by UCC, so we must delete script packages if Globals.uci changes.
+		$lastBuildDetails = Get-Content $this.makeFingerprintsPath | ConvertFrom-Json
+
+		$buildMode = if ($this.debug -eq $true) { "debug" } else { "release" }
+		$globalsHash = Get-FileHash "$($this.sdkPath)\Development\Src\Core\Globals.uci" | Select-Object -ExpandProperty Hash
+		$coreTimeStamp = $this._GetCoreMtime()
+
+		$rebuild = if ($lastBuildDetails.buildMode -ne $buildMode) {
+			Write-Host "Detected switch between debug and non-debug build."
+			$true
+		} elseif ($lastBuildDetails.coreTimestamp -ne $coreTimeStamp) {
+			Write-Host "Detected previous external rebuild."
+			$true
+		} elseif ($lastBuildDetails.globalsHash -ne $globalsHash) {
+			Write-Host "Detected change in macros (Globals.uci)."
+			$true
+		} else {
+			$false
+		}
+
+		# Order: Deleting first cannot cause an issue because the compiler will just rebuild.
+		if ($rebuild) {
+			Write-Host "Cleaning all compiled scripts from $($this.sdkPath)/XComGame/Script to avoid compiler error..."
+			Remove-Item "$($this.sdkPath)/XComGame/Script/*.u"
+			Write-Host "Cleaned."
+		}
+
+		$lastBuildDetails.buildMode = $buildMode
+		$lastBuildDetails.globalsHash = $globalsHash
+
+		# Similarly, recording the previous invocation fingerprints before the build is complete
+		# cannot cause an issue because the compiler will simply continue an interrupted build.
+		$lastBuildDetails | ConvertTo-Json | Set-Content -Path $this.makeFingerprintsPath
+	}
+
+	[void]_RecordCoreTimestamp() {
+		# Unfortunately, ModBuddy with Fxs' plugin can rebuild the packages under our nose.
+		# As a last resort, record the Core.u timestamp
+		$lastBuildDetails = Get-Content $this.makeFingerprintsPath | ConvertFrom-Json
+		$lastBuildDetails.coreTimestamp = $this._GetCoreMtime()
+		$lastBuildDetails | ConvertTo-Json | Set-Content -Path $this.makeFingerprintsPath
 	}
 
 	[void]_RunMakeBase() {
@@ -589,6 +657,11 @@ class BuildProject {
 		try {
 			# Redirect all the cook output to our local cache
 			# This allows us to not recook everything when switching between projects (e.g. CHL)
+			# Ensure parent directory exists
+			$cookOutputParentDir = [io.path]::combine($this.sdkPath, 'XComGame', 'Published')
+			if (-not (Test-Path -Path $cookOutputParentDir)) {
+				New-Item -Path $cookOutputParentDir -Type Directory
+			}
 			New-Junction $cookOutputDir $projectCookCacheDir
 
 			# "Inject" our assets into the SDK to make them visible to the cooker
@@ -825,14 +898,6 @@ class BuildProject {
 
 	[void]_FinalCopy() {
 		$finalModPath = "$($this.gamePath)\XComGame\Mods\$($this.modNameCanonical)"
-
-		# Delete the actual game's mod's folder
-		# This ensures that files that were deleted in the project will also get deleted in the deployed version
-		if (Test-Path $finalModPath)
-		{
-			Write-Host "Deleting existing deployed mod folder"
-			Remove-Item $finalModPath -Force -Recurse
-		}
 
 		# copy all staged files to the actual game's mods folder
 		# TODO: Is the string interpolation required in the robocopy calls?
@@ -1118,10 +1183,12 @@ function SuccessMessage($message, $modNameCanonical)
 }
 
 function New-Junction ([string] $source, [string] $destination) {
+	Write-Host "Creating Junction: $source -> $destination"
 	&"$global:buildCommonSelfPath\junction.exe" -nobanner -accepteula "$source" "$destination"
 }
 
 function Remove-Junction ([string] $path) {
+	Write-Host "Removing Junction: $path"
 	&"$global:buildCommonSelfPath\junction.exe" -nobanner -accepteula -d "$path"
 }
 
