@@ -682,10 +682,6 @@ class BuildProject {
 
 			$this._InvokeAssetCooker($mapsToCook, $engineIniAdditions)
 		}
-		catch {
-			FailureMessage "Failed to cook packages"
-			FailureMessage $_
-		}
 		finally {
 			Write-Host "Cleaning up the asset cooking hacks"
 
