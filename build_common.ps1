@@ -1060,7 +1060,8 @@ class MakeStdoutReceiver : StdoutReceiver {
 			$pattern = [regex]::Escape($this.developmentDirectory)
 			# n.b. -Replace is case insensitive
 			$replacementTxt = $outtxt -Replace $pattern, $this.modSrcRoot
-			$outTxt = $replacementTxt -Replace $messagePattern, '$1:$2 : $3'
+			# this syntax works with both VS Code and ModBuddy
+			$outTxt = $replacementTxt -Replace $messagePattern, '$1($2) : $3'
 		}
 
 		$summPattern = "^(Success|Failure) - ([0-9]+) error\(s\), ([0-9]+) warning\(s\) \(([0-9]+) Unique Errors, ([0-9]+) Unique Warnings\)"
