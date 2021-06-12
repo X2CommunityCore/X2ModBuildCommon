@@ -25,8 +25,7 @@ $folders = @(
     "$srcDirectory\BuildCache",
     "$sdkPath\Development\Src\*",
     "$sdkPath\XComGame\Mods\*",
-    "$gamePath\XComGame\Mods\$modName",
-    "$sdkPath\XComGame\Published"
+    "$gamePath\XComGame\Mods\$modName"
 )
 
 $files | ForEach-Object {
