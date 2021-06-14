@@ -1,9 +1,13 @@
-Write-Host "Build Common Loading"
+$global:x2mbcVersion = "v1.2.0"
+
+Write-Host "Build Common $($global:x2mbcVersion) Loading"
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 
-$global:def_robocopy_args = @("/S", "/E", "/DCOPY:DA", "/COPY:DAT", "/PURGE", "/MIR", "/NP", "/R:1000000", "/W:30")
+$global:robocopySingleArgs = @("/COPY:DAT", "/NP", "/R:1000000", "/W:30")
+$global:robocopyMirrorFullArgs = @("/S", "/E", "/DCOPY:DA", "/COPY:DAT", "/PURGE", "/MIR", "/NP", "/R:1000000", "/W:30")
+$global:robocopyMirrorShallowArgs = @("/DCOPY:DA", "/COPY:DAT", "/PURGE", "/NP", "/R:1000000", "/W:30")
 $global:buildCommonSelfPath = split-path -parent $MyInvocation.MyCommand.Definition
 # list of all native script packages
 $global:nativescriptpackages = @("XComGame", "Core", "Engine", "GFxUI", "AkAudio", "GameFramework", "UnrealEd", "GFxUIEditor", "IpDrv", "OnlineSubsystemPC", "OnlineSubsystemLive", "OnlineSubsystemSteamworks", "OnlineSubsystemPSN")
@@ -35,6 +39,8 @@ class BuildProject {
 	[string] $buildCachePath
 	[string] $modcookdir
 	[string] $makeFingerprintsPath
+	[string] $buildCacheHashesPath
+	[string] $stagedShaderCachePath
 	[string[]] $thismodpackages
 	[bool] $isHl
 	[bool] $cookHL
@@ -44,6 +50,7 @@ class BuildProject {
 	[string] $assetsCookTfcSuffix
 
 
+	#region PublicAPI
 	BuildProject(
 		[string]$mod,
 		[string]$projectRoot,
@@ -94,34 +101,33 @@ class BuildProject {
 			$this._ConfirmPaths()
 			$this._SetupUtils()
 			$this._LoadContentOptions()
-			$this._PerformStep({ ($_)._CleanAdditional() }, "Cleaning", "Cleaned", "additional mods")
-			$this._PerformStep({ ($_)._CopyModToSdk() }, "Mirroring", "Mirrored", "mod to SDK")
-			$this._PerformStep({ ($_)._ConvertLocalization() }, "Converting", "Converted", "Localization UTF-8 -> UTF-16")
-			$this._PerformStep({ ($_)._CopyToSrc() }, "Populating", "Populated", "Development\Src folder")
-			$this._PerformStep({ ($_)._RunPreMakeHooks() }, "Running", "Ran", "Pre-Make hooks")
-			$this._PerformStep({ ($_)._CheckCleanCompiled() }, "Verifying", "Verified", "compiled script packages")
-			$this._PerformStep({ ($_)._RunMakeBase() }, "Compiling", "Compiled", "base-game script packages")
-			$this._PerformStep({ ($_)._RunMakeMod() }, "Compiling", "Compiled", "mod script packages")
+			$this._AdHocStep({ ($_)._CleanAdditional() }, "Cleaning", "Cleaned", "additional mods")
+			$this._AdHocStep({ ($_)._CopyModToSdk() }, "Mirroring", "Mirrored", "mod to SDK")
+			$this._PerformStep([LocalizationStep]::new($this))
+			$this._AdHocStep({ ($_)._CopyToSrc() }, "Populating", "Populated", "Development\Src folder")
+			$this._AdHocStep({ ($_)._RunPreMakeHooks() }, "Running", "Ran", "Pre-Make hooks")
+			$this._AdHocStep({ ($_)._CheckCleanCompiled() }, "Verifying", "Verified", "compiled script packages")
+			$this._AdHocStep({ ($_)._RunMakeBase() }, "Compiling", "Compiled", "base-game script packages")
+			$this._AdHocStep({ ($_)._RunMakeMod() }, "Compiling", "Compiled", "mod script packages")
 			$this._RecordCoreTimestamp()
 			if ($this.isHl) {
 				if (-not $this.debug) {
-					$this._PerformStep({ ($_)._RunCookHL() }, "Cooking", "Cooked", "Highlander packages")
+					$this._AdHocStep({ ($_)._RunCookHL() }, "Cooking", "Cooked", "Highlander packages")
 				} else {
 					Write-Host "Skipping cooking as debug build"
 				}
 			}
-			$this._PerformStep({ ($_)._CopyScriptPackages() }, "Copying", "Copied", "compiled script packages")
+			$this._AdHocStep({ ($_)._CopyScriptPackages() }, "Copying", "Copied", "compiled script packages")
 			
 			# The shader step needs to happen before cooking - precompiler gets confused by some inlined materials
-			$this._PerformStep({ ($_)._PrecompileShaders() }, "Precompiling", "Precompiled", "shaders")
-	
-			$this._PerformStep({ ($_)._RunCookAssets() }, "Cooking", "Cooked", "mod assets")
+			$this._PerformStep([PrecomShadersStep]::new($this))
+			$this._PerformStep([ModCookStep]::new($this))
 	
 			# Do this last as there is no need for it earlier - the cooker obviously has access to the game assets
 			# and precompiling shaders seems to do nothing (I assume they are included in the game's GlobalShaderCache)
-			$this._PerformStep({ ($_)._CopyMissingUncooked() }, "Copying", "Copied", "requested uncooked packages")
-	
-			$this._PerformStep({ ($_)._FinalCopy() }, "Copying", "Copied", "built mod to game directory")
+			$this._AdHocStep({ ($_)._CopyMissingUncooked() }, "Copying", "Copied", "requested uncooked packages")
+
+			$this._AdHocStep({ ($_)._FinalCopy() }, "Copying", "Copied", "built mod to game directory")
 			$fullStopwatch.Stop()
 			$this._ReportTimings($fullStopwatch)
 			SuccessMessage "*** SUCCESS! ($(FormatElapsed $fullStopwatch.Elapsed)) ***" $this.modNameCanonical
@@ -131,24 +137,38 @@ class BuildProject {
 			throw
 		}
 	}
+	#endregion PublicAPI
 
-	[void]_PerformStep([scriptblock]$stepCallback, [string]$progressWord, [string]$completedWord, [string]$description) {
-		Write-Host "$($progressWord) $($description)..."
+	#region Timing
+	[void]_AdHocStep([scriptblock]$stepCallback, [string]$progressWord, [string]$completedWord, [string]$description) {
+		$step = [AdHocStep]::new($this, $stepCallback, $progressWord, $completedWord, $description)
+		$this._PerformStep($step)
+	}
+
+	[void]_PerformStep([Step]$step) {
 		$sw = [Diagnostics.Stopwatch]::StartNew()
 
-		# HACK: Set $_ for $stepCallback with Foreach-Object on only one object
-		$this | ForEach-Object $stepCallback
+		$run = $step.NeedsRun()
+		if ($run) {
+			Write-Host "$($step.progressWord) $($step.description)..."
+			$step.Run()
+		}
 
 		$sw.Stop()
 
 		$record = [PSCustomObject]@{
-			Description = "$($progressWord) $($description)"
+			Description = "$($step.progressWord) $($step.description)"
 			Seconds = $sw.Elapsed.TotalSeconds
+			Ran = $run
 		}
 
 		$this.timings += $record
 
-		Write-Host -ForegroundColor DarkGreen "$($completedWord) $($description) in $(FormatElapsed $sw.Elapsed)"
+		if ($run) {
+			Write-Host -ForegroundColor DarkGreen "$($step.completedWord) $($step.description) in $(FormatElapsed $sw.Elapsed)"
+		} else {
+			Write-Host -ForegroundColor DarkGreen "Skipped $($step.progressWord) $($step.description) in $(FormatElapsed $sw.Elapsed)"
+		}
 	}
 
 	[void]_ReportTimings([Diagnostics.Stopwatch]$fullStopwatch) {
@@ -171,7 +191,9 @@ class BuildProject {
 			} | Format-Table | Out-String | Write-Host
 		}
 	}
+	#endregion Timing
 
+	#region Steps
 	[void]_CheckFlags() {
 		if ($this.debug -eq $true -and $this.final_release -eq $true)
 		{
@@ -222,6 +244,13 @@ class BuildProject {
 		{
 			New-Item -ItemType "directory" -Path $this.buildCachePath
 		}
+		$this.buildCacheHashesPath = [io.path]::combine($this.projectRoot, 'BuildCache', 'hashes.json')
+		if (!(Test-Path $this.buildCacheHashesPath))
+		{
+			$this._SaveCacheHashes(@{})
+		}
+
+		$this.stagedShaderCachePath = "$($this.stagingPath)\Content\$($this.modNameCanonical)_ModShaderCache.upk"
 
 		$this.makeFingerprintsPath = "$($this.sdkPath)\XComGame\lastBuildDetails.json"
 		$lastBuildDetails = if (Test-Path $this.makeFingerprintsPath) {
@@ -283,18 +312,47 @@ class BuildProject {
 		}
 	}
 
+	
+	[PSCustomObject]_LoadCacheHashes() {
+		return Get-Content -Path $this.buildCacheHashesPath | ConvertFrom-Json
+	}
+
+	[void]_SaveCacheHashes([PSCustomObject]$hashes) {
+		$hashes | ConvertTo-Json | Set-Content -Path $this.buildCacheHashesPath
+	}
+
 	[void]_CopyModToSdk() {
-		$xf = @("*.x2proj")
+		$xf = @("*.x2proj", "$($this.modSrcRoot)\Script", "$($this.modSrcRoot)\CookedPCConsole")
 
 		if (![string]::IsNullOrEmpty($this.contentOptionsJsonFilename)) {
 			$xf += $this.contentOptionsJsonFilename
 		}
-		
+
 		Write-Host "Copying mod project to staging..."
-		Robocopy.exe "$($this.modSrcRoot)" "$($this.sdkPath)\XComGame\Mods\$($this.modNameCanonical)" *.* $global:def_robocopy_args /XF @xf
+		Get-ChildItem "$($this.modSrcRoot)"
+		Robocopy.exe "$($this.modSrcRoot)" "$($this.stagingPath)" *.* $global:robocopyMirrorShallowArgs /XF @xf
+		$regularFolders = @("Config", "Src")
+		$regularFolders | ForEach-Object {
+			if (-not (Test-Path "$($this.stagingPath)\$_")) {
+				New-Item -ItemType Directory -Path "$($this.stagingPath)\$($_)"
+			}
+			Robocopy.exe "$($this.modSrcRoot)\$_" "$($this.stagingPath)\$_" *.* $global:robocopyMirrorFullArgs
+		}
 		Write-Host "Copied project to staging."
 
-		New-Item "$($this.stagingPath)/Script" -ItemType Directory
+		# Copy content files, but keep ShaderCache and MissingUncooked
+		$contentXf = @(
+			"$($this.modSrcRoot)\Content\$($this.modNameCanonical)_ModShaderCache.upk",
+			"$($this.modSrcRoot)\Content\MissingUncooked\*"
+		)
+		if (-not (Test-Path "$($this.stagingPath)\Content")) {
+			New-Item -Directory -Path "$($this.stagingPath)\Content"
+		}
+		Robocopy.exe "$($this.modSrcRoot)\Content" "$($this.stagingPath)\Content" *.* $global:robocopyMirrorFullArgs /XF @$contentXf
+
+		if (-not (Test-Path "$($this.stagingPath)/Script")) {
+			New-Item "$($this.stagingPath)/Script" -ItemType Directory
+		}
 
 		# read mod metadata from the x2proj file
 		Write-Host "Reading mod metadata from $($this.modSrcRoot)\$($this.modNameCanonical).x2proj..."
@@ -318,7 +376,7 @@ class BuildProject {
 			New-Item "$($this.stagingPath)/CookedPCConsole" -ItemType Directory
 		}
 	}
-	
+
 	[void]_CleanAdditional() {
 		# clean
 		foreach ($modName in $this.clean) {
@@ -341,7 +399,7 @@ class BuildProject {
 	[void]_CopyToSrc() {
 		# mirror the SDK's SrcOrig to its Src
 		Write-Host "Mirroring SrcOrig to Src..."
-		Robocopy.exe "$($this.sdkPath)\Development\SrcOrig" "$($this.devSrcRoot)" *.uc *.uci $global:def_robocopy_args
+		Robocopy.exe "$($this.sdkPath)\Development\SrcOrig" "$($this.devSrcRoot)" *.uc *.uci $global:robocopyMirrorFullArgs
 		Write-Host "Mirrored SrcOrig to Src."
 
 		$this._ParseMacroFile("$($this.devSrcRoot)\Core\Globals.uci")
@@ -537,73 +595,6 @@ class BuildProject {
 		}
 	}
 
-	[void]_PrecompileShaders() {
-		Write-Host "Checking the need to PrecompileShaders"
-		$contentfiles = @()
-
-		if (Test-Path "$($this.modSrcRoot)/Content")
-		{
-			$contentfiles = $contentfiles + (Get-ChildItem "$($this.modSrcRoot)/Content" -Include *.upk, *.umap -Recurse -File)
-		}
-		
-		if (Test-Path "$($this.modSrcRoot)/ContentForCook")
-		{
-			$contentfiles = $contentfiles + (Get-ChildItem "$($this.modSrcRoot)/ContentForCook" -Include *.upk, *.umap -Recurse -File)
-		}
-
-		if ($contentfiles.length -eq 0) {
-			Write-Host "No content files, skipping PrecompileShaders."
-			return
-		}
-
-		# for ($i = 0; $i -lt $contentfiles.Length; $i++) {
-		# 	Write-Host $contentfiles[$i]
-		# }
-
-		$need_shader_precompile = $false
-		$shaderCacheName = "$($this.modNameCanonical)_ModShaderCache.upk"
-		$cachedShaderCachePath = "$($this.buildCachePath)/$($shaderCacheName)"
-		
-		# Try to find a reason to precompile the shaders
-		if (!(Test-Path -Path $cachedShaderCachePath))
-		{
-			$need_shader_precompile = $true
-		} 
-		elseif ($contentfiles.length -gt 0)
-		{
-			$shader_cache = Get-Item $cachedShaderCachePath
-			
-			foreach ($file in $contentfiles)
-			{
-				if ($file.LastWriteTime -gt $shader_cache.LastWriteTime -Or $file.CreationTime -gt $shader_cache.LastWriteTime)
-				{
-					$need_shader_precompile = $true
-					break
-				}
-			}
-		}
-		
-		if ($need_shader_precompile)
-		{
-			# build the mod's shader cache
-			Write-Host "Precompiling Shaders..."
-			$precompileShadersFlags = "precompileshaders -nopause platform=pc_sm4 DLC=$($this.modNameCanonical)"
-
-			$handler = [PassthroughReceiver]::new()
-			$handler.processDescr = "precompiling shaders"
-			$this._InvokeEditorCmdlet($handler, $precompileShadersFlags, 10)
-
-			Write-Host "Generated Shader Cache."
-
-			Copy-Item -Path "$($this.stagingPath)/Content/$shaderCacheName" -Destination $this.buildCachePath
-		}
-		else
-		{
-			Write-Host "No reason to precompile shaders, using existing"
-			Copy-Item -Path $cachedShaderCachePath -Destination "$($this.stagingPath)/Content"
-		}
-	}
-
 	[void]_RunCookAssets() {
 		if (($this.contentOptions.sfStandalone.Length -lt 1) -and ($this.contentOptions.sfMaps.Length -lt 1)) {
 			Write-Host "No asset cooking is requested, skipping"
@@ -629,7 +620,7 @@ class BuildProject {
 		$cookOutputDir = [io.path]::combine($this.sdkPath, 'XComGame', 'Published', 'CookedPCConsole')
 		$sdkModsContentDir = [io.path]::combine($this.sdkPath, 'XComGame', 'Content', 'Mods')
 		
-		$stagingContentForCook = "$($this.stagingPath)\ContentForCook"
+		$modSrcContentForCook = "$($this.modSrcRoot)\ContentForCook"
 		
 		# First, we need to check that everything is ready for us to do these shenanigans
 		# This doesn't use locks, so it can break if multiple builds are running at the same time,
@@ -679,10 +670,10 @@ class BuildProject {
 		foreach ($mapDef in $this.contentOptions.sfCollectionMaps) {
 			$mapsToCook += $mapDef.name
 
-			if ($null -eq (Get-ChildItem -Path $stagingContentForCook -Filter $mapDef.name -Recurse)) {
+			if ($null -eq (Get-ChildItem -Path $modSrcContentForCook -Filter $mapDef.name -Recurse)) {
 				# Important: we cannot use .umap extension here - git lfs (if in use) gets confused during git subtree add
 				# See https://github.com/X2CommunityCore/X2ModBuildCommon/wiki/Do-not-use-.umap-for-files-in-this-repo
-				Copy-Item "$global:buildCommonSelfPath\EmptyUMap" "$stagingContentForCook\$($mapDef.name).umap"
+				Copy-Item "$global:buildCommonSelfPath\EmptyUMap" "$modSrcContentForCook\$($mapDef.name).umap"
 			}
 		}
 
@@ -702,7 +693,7 @@ class BuildProject {
 
 			# "Inject" our assets into the SDK to make them visible to the cooker
 			Remove-Item $sdkModsContentDir
-			New-Junction $sdkModsContentDir "$($this.stagingPath)\ContentForCook"
+			New-Junction $sdkModsContentDir "$($this.modSrcRoot)\ContentForCook"
 
 			if ($firstModCook) {
 				# First do a cook without our assets since gfxCommon.upk still get included in the cook, polluting the TFCs, depsite the config hacks
@@ -797,9 +788,6 @@ class BuildProject {
 			# Mod assets for some reason refuse to load with the _SF suffix
 			Copy-Item "$projectCookCacheDir\${package}_SF.upk" -Destination $dest
 		}
-
-		# No need for the ContentForCook directory anymore
-		Remove-Item "$($this.stagingPath)/ContentForCook" -Recurse
 
 		Write-Host "Assets cook completed"
 	}
@@ -935,7 +923,7 @@ class BuildProject {
 
 		# copy all staged files to the actual game's mods folder
 		# TODO: Is the string interpolation required in the robocopy calls?
-		Robocopy.exe "$($this.stagingPath)" "$($finalModPath)" *.* $global:def_robocopy_args
+		Robocopy.exe "$($this.stagingPath)" "$($finalModPath)" *.* $global:robocopyMirrorFullArgs
 	}
 
 	[void]_InvokeEditorCmdlet([StdoutReceiver] $receiver, [string] $makeFlags, [int] $sleepMsDuration) {
@@ -1012,7 +1000,10 @@ class BuildProject {
 		$exitCode = $process.ExitCode
 		$receiver.Finish($exitCode)
 	}
+	#endregion Steps
 }
+
+#region StdoutReceivers
 
 class StdoutReceiver {
 	[bool] $crashDetected = $false
@@ -1197,6 +1188,249 @@ class ModcookReceiver : StdoutReceiver {
 	}
 }
 
+#endregion StdoutReceivers
+
+#region Incremental
+class Step {
+	[BuildProject] $project
+	[string]$progressWord
+	[string]$completedWord
+	[string]$description
+
+	Step([BuildProject]$project, [string]$progressWord, [string]$completedWord, [string]$description) {
+		$this.project = $project
+		$this.progressWord = $progressWord
+		$this.completedWord = $completedWord
+		$this.description = $description
+	}
+
+	[bool]NeedsRun() {
+		throw "abstract method not overridden"
+	}
+	[void]Run() {
+		throw "abstract method not overridden"
+	}
+}
+
+class AdHocStep: Step {
+	[scriptblock]$action
+	AdHocStep([BuildProject]$project, [scriptblock]$action, [string]$progressWord, [string]$completedWord, [string]$description)
+	: base ($project, $progressWord, $completedWord, $description)
+	{
+		$this.action = $action
+	}
+
+	[bool]NeedsRun() {
+		return $true
+	}
+	[void]Run() {
+		# HACK: Set $_ for $stepCallback with Foreach-Object on only one object
+		$this.project | ForEach-Object $this.action
+	}
+}
+
+class FilesPattern {
+	[string]$path
+	[string[]]$includeFilePatterns
+	[string[]]$excludePatterns
+
+	FilesPattern([string[]]$path, [string[]]$includeFilePatterns, [string[]]$excludePatterns) {
+		$this.path = $path
+		$this.includeFilePatterns = $includeFilePatterns
+		$this.excludePatterns = $excludePatterns
+	}
+
+	[string[]]CollectFiles() {
+		$files = @()
+
+		if (Test-Path -Path $this.path) {
+			Get-ChildItem -Path $this.path -Include $this.includeFilePatterns -Recurse -File | ForEach-Object {
+				$allowed = $true
+				foreach ($exclude in $this.excludePatterns) { 
+					if ($_ -ilike $exclude) { 
+						$allowed = $false
+						break
+					}
+				}
+				if ($allowed) {
+					$files += $_
+				}
+			}
+		}
+
+		return $files
+	}
+}
+
+class HashedStep: Step {
+	[FilesPattern[]]$inputs
+	[FilesPattern[]]$outputs
+	[string]$inputsHash
+	HashedStep([BuildProject]$project, [string]$progressWord, [string]$completedWord, [string]$description)
+		: base ($project, $progressWord, $completedWord, $description)
+	{
+	}
+
+	[bool]NeedsRun() {
+		$id = $this.Id()
+		$allHashes = $this.project._LoadCacheHashes()
+		$storedHashes = try { $allHashes.$($id) } catch { $null }
+		$currHashes = $this.PreRunHashes()
+		Write-Host "Current: $currHashes"
+		Write-Host "Stored: $storedHashes"
+		if ($null -eq $storedHashes) {
+			return $true
+		}
+		if ($storedHashes.inputHash -ne $currHashes.inputHash) {
+			Write-Host "Input files were changed."
+			return $true
+		}
+		if ($storedHashes.outputHash -ne $currHashes.outputHash) {
+			Write-Host "Output files were changed."
+			return $true
+		}
+		return $false
+
+	}
+
+	[void]Run() {
+		$this.RunInternal()
+		$id = $this.Id()
+		$allHashes = $this.project._LoadCacheHashes()
+		$allHashes | Add-Member -Force -NotePropertyName $id -NotePropertyValue $this.PostRunHashes()
+		$this.project._SaveCacheHashes($allHashes)
+	}
+
+	[string]FilesTimestampHash([FilesPattern[]]$filesPat) {
+		$files = $filesPat | ForEach-Object { $_.CollectFiles() }
+
+		$encoding = [System.Text.UTF8Encoding]::new()
+		$hasher = [System.Security.Cryptography.SHA256Cng]::new()
+		$files | Get-Item -ErrorAction Continue | Sort-Object -Descending -Property FullName | ForEach-Object {
+			$time = $_.LastWriteTime.Ticks
+			$arr = [System.BitConverter]::GetBytes($time)
+			$hasher.TransformBlock($arr, 0, $arr.Count, $null, 0)
+
+			$path = $encoding.GetBytes($_.FullName)
+			$hasher.TransformBlock($path, 0, $path.Count, $null, 0)
+		}
+		$arr = $encoding.GetBytes($global:x2mbcVersion)
+		$hasher.TransformFinalBlock($arr, 0, $arr.Count)
+		$result = $hasher.Hash
+		$digest = [System.BitConverter]::ToString($result).Replace("-","")
+		return $digest
+	}
+
+	[string]Id() {
+		throw "abstract method not overridden"
+	}
+
+	[string]RunInternal() {
+		throw "abstract method not overridden"
+	}
+
+	[PSCustomObject]PreRunHashes() {
+		$this.inputsHash = $this.FilesTimestampHash($this.inputs)
+		return [PSCustomObject]@{
+			inputHash = $this.inputsHash
+			outputHash = $this.FilesTimestampHash($this.outputs)
+		}
+	}
+
+	[PSCustomObject]PostRunHashes() {
+		return [PSCustomObject]@{
+			inputHash = $this.inputsHash
+			outputHash = $this.FilesTimestampHash($this.outputs)
+		}
+	}
+
+}
+
+class LocalizationStep: HashedStep {
+	LocalizationStep([BuildProject]$project) : base ($project, "Converting", "Converted", "Localization files UTF-8 -> UTF-16") {
+		$this.inputs = [FilesPattern]::new("$($this.project.modSrcRoot)\Localization", "*.*", @())
+		$this.outputs = [FilesPattern]::new("$($this.project.stagingPath)\Localization", "*.*", @())
+	}
+
+	[string]Id() {
+		return "localization"
+	}
+
+	[void]RunInternal() {
+		Robocopy.exe "$($this.project.modSrcRoot)\Localization" "$($this.project.stagingPath)\Localization" *.* $global:robocopyMirrorFullArgs
+		Get-ChildItem "$($this.project.stagingPath)\Localization" -Recurse -File | 
+		Foreach-Object {
+			$content = Get-Content $_.FullName -Encoding UTF8
+			$content | Out-File $_.FullName -Encoding Unicode
+		}
+	}
+}
+
+class PrecomShadersStep: HashedStep {
+	PrecomShadersStep([BuildProject]$project) : base ($project, "Precompiling", "Precompiled", "shaders") {
+		$this.inputs = @([FilesPattern]::new("$($this.project.modSrcRoot)\Content", @("*.upk", "*.umap"), @()),
+			[FilesPattern]::new("$($this.project.modSrcRoot)\ContentForCook", @("*.upk", "*.umap"), @()))
+		$this.outputs = [FilesPattern]::new("$($this.project.stagingPath)\Content", "*_ModShaderCache.upk", @())
+	}
+
+	[string]Id() {
+		return "precomshaders"
+	}
+
+	[void]RunInternal() {
+
+		if (Test-Path -Path $this.project.stagedShaderCachePath) {
+			Remove-Item -Path $this.project.stagedShaderCachePath
+		}
+
+		if (($this.inputs | ForEach-Object { $_.CollectFiles() }).Count -gt 0) {
+			try {
+				if (Test-Path "$($this.project.modSrcRoot)/ContentForCook") {
+					New-Junction "$($this.project.stagingPath)/ContentForCook" "$($this.project.modSrcRoot)/ContentForCook"
+				}
+				# build the mod's shader cache
+				$precompileShadersFlags = "precompileshaders -nopause platform=pc_sm4 DLC=$($this.project.modNameCanonical)"
+	
+				$handler = [PassthroughReceiver]::new()
+				$handler.processDescr = "precompiling shaders"
+				$this.project._InvokeEditorCmdlet($handler, $precompileShadersFlags, 10)
+			}
+			finally {
+				Remove-Junction "$($this.project.stagingPath)/ContentForCook"
+			}
+			
+		} else {
+			Write-Host "Actually no need to precompile shaders."
+		}
+	}
+}
+
+class ModCookStep: HashedStep {
+	ModCookStep([BuildProject]$project) : base ($project, "Cooking", "Cooked", "mod assets") {
+		$this.inputs = @([FilesPattern]::new("$($this.project.modSrcRoot)\ContentForCook", @("*.upk", "*.umap"), @()),
+			[FilesPattern]::new("$($this.project.modSrcRoot)", @($($this.project.contentOptionsJsonFilename)), @()))
+		$this.outputs = @([FilesPattern]::new("$($this.project.stagingPath)\CookedPCConsole", "*.*", @()),
+			[FilesPattern]::new("$($this.project.buildCachePath)\PublishedCookedPCConsole", "*.*", @()))
+	}
+
+	[string]Id() {
+		return "cookassets"
+	}
+
+	[void]RunInternal() {
+		$stagingCookedDir = [io.path]::combine($this.project.stagingPath, 'CookedPCConsole')
+		if (Test-Path -Path $stagingCookedDir) {
+			Remove-Item -Path "$stagingCookedDir\*" -Recurse
+		}
+		if (Test-Path -Path "$($this.project.modSrcRoot)\CookedPCConsole") {
+			Robocopy.exe "$($this.project.modSrcRoot)\CookedPCConsole" "$($this.project.stagingPath)\CookedPCConsole" *.* $global:robocopyMirrorFullArgs
+		}
+		$this.project._RunCookAssets()
+	}
+}
+#endregion Incremental
+
+#region Utils
 function FailureMessage($message)
 {
 	[System.Media.SystemSounds]::Hand.Play()
@@ -1236,3 +1470,4 @@ function KillProcessTree ([int] $ppid) {
 	Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq $ppid } | ForEach-Object { KillProcessTree $_.ProcessId }
 	Stop-Process -Id $ppid
 }
+#endregion Utils
