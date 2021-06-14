@@ -388,7 +388,7 @@ class BuildProject {
 					Write-Host "    Note: Previously $($defineWord) at $($prevDef.file)($($prevDef.lineNr))"
 					Write-Host "    Note: Implicitly redefined at $($file)($($lineNr))"
 					Write-Host "    Help: Rename the macro, or add ``// X2MBC-Redefine`` above to explicitly redefine and silence this warning."
-					ThrowFailure "Aborting due to previous error."
+					ThrowFailure "Implicit macro redefinition."
 				}
 				$macroDef = [PSCustomObject]@{
 					file = $file
