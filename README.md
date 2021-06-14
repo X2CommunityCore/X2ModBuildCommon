@@ -10,7 +10,6 @@ An improved XCOM 2 mod build system. The following (in no praticular order) are 
 * Full HL building: final release compiling and cooking of native script packages
 * Scriptable hooks in the build process
 * Conversion of localization file(s) encoding (UTF8 in the project for correct git merging and UTF16 for correct game loading)
-* Validation of `.x2proj` for cases when devs are using both ModBuddy and VSCode
 * Mod asset cooking (experimental)
 * Correct removal of files from the steamapps/XCOM2/WOTC/XComGame/Mods (built mod) when they are deleted from the project
 * Mod-defined global macros (without explicit `include`s and without messing with your `SrcOrig`)
@@ -104,6 +103,12 @@ Replace it with following:
   </PropertyGroup>
   <Import Project="$(BuildCommonRoot)XCOM2.targets" />
 ```
+
+Note that the build tool does not care about most of the `.x2proj` file and will
+copy and compile files not referenced by the project file without issuing warnings.
+Consider using a tool like [Xymanek/X2ProjectGenerator](https://github.com/Xymanek/X2ProjectGenerator)
+to automatically ensure the file list in ModBuddy accurately lists the files part of the project.
+
 
 ### VSCode
 
