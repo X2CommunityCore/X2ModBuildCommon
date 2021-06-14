@@ -8,10 +8,7 @@ $global:buildCommonSelfPath = split-path -parent $MyInvocation.MyCommand.Definit
 # list of all native script packages
 $global:nativescriptpackages = @("XComGame", "Core", "Engine", "GFxUI", "AkAudio", "GameFramework", "UnrealEd", "GFxUIEditor", "IpDrv", "OnlineSubsystemPC", "OnlineSubsystemLive", "OnlineSubsystemSteamworks", "OnlineSubsystemPSN")
 
-# Enforce decimal separator dot. Sorry.
-$culture = [System.Globalization.CultureInfo]::CreateSpecificCulture("en-US")
-[System.Threading.Thread]::CurrentThread.CurrentCulture = $culture
-
+$global:invarCulture = [System.Globalization.CultureInfo]::InvariantCulture
 
 class BuildProject {
 	[string] $modNameCanonical
@@ -156,20 +153,21 @@ class BuildProject {
 	}
 
 	[void]_ReportTimings([Diagnostics.Stopwatch]$fullStopwatch) {
-		$fullTime = $fullStopwatch.Elapsed.TotalSeconds
-		$accountedTime = $this.timings | Measure-Object -Sum -Property Seconds | Select-Object -ExpandProperty Sum
-		$this.timings += [PSCustomObject]@{
-			Description = "Total Duration"
-			Seconds = $fullTime
-		}
-		$this.timings += [PSCustomObject]@{
-			Description = "Unaccounted time"
-			Seconds = $fullTime - $accountedTime
-		}
 		if (-not [string]::IsNullOrEmpty($env:X2MBC_REPORT_TIMINGS)) {
+			$fullTime = $fullStopwatch.Elapsed.TotalSeconds
+			$accountedTime = $this.timings | Measure-Object -Sum -Property Seconds | Select-Object -ExpandProperty Sum
+			$this.timings += [PSCustomObject]@{
+				Description = "Total Duration"
+				Seconds = $fullTime
+			}
+			$this.timings += [PSCustomObject]@{
+				Description = "Unaccounted time"
+				Seconds = $fullTime - $accountedTime
+			}
+
 			$this.timings | Sort-Object -Descending -Property { $_.Seconds } | ForEach-Object {
-				$_ | Add-Member -NotePropertyName "Share" -NotePropertyValue ($_.Seconds / $fullTime).ToString("0.00%")
-				$_.Seconds = $_.Seconds.ToString("0.00s")
+				$_ | Add-Member -NotePropertyName "Share" -NotePropertyValue ($_.Seconds / $fullTime).ToString("0.00%", $global:invarCulture)
+				$_.Seconds = $_.Seconds.ToString("0.00s", $global:invarCulture)
 				$_
 			} | Format-Table | Out-String | Write-Host
 		}
@@ -1258,7 +1256,7 @@ function SuccessMessage($message, $modNameCanonical)
 }
 
 function FormatElapsed($elapsed) {
-	return $elapsed.TotalSeconds.ToString("0.00s")
+	return $elapsed.TotalSeconds.ToString("0.00s", $global:invarCulture)
 }
 
 function New-Junction ([string] $source, [string] $destination) {
