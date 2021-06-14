@@ -21,6 +21,9 @@ class BuildProject {
 	[string[]] $clean = @()
 	[object[]] $preMakeHooks = @()
 
+	# internals
+	[hashtable] $macroDefs = @{}
+
 	# lazily set
 	[string] $modSrcRoot
 	[string] $devSrcRoot
@@ -339,6 +342,8 @@ class BuildProject {
 		Robocopy.exe "$($this.sdkPath)\Development\SrcOrig" "$($this.devSrcRoot)" *.uc *.uci $global:def_robocopy_args
 		Write-Host "Mirrored SrcOrig to Src."
 
+		$this._ParseMacroFile("$($this.devSrcRoot)\Core\Globals.uci")
+
 		# Copy dependencies
 		Write-Host "Copying dependency sources to Src..."
 		foreach ($depfolder in $this.include) {
@@ -349,15 +354,54 @@ class BuildProject {
 
 		# copying the mod's scripts to the script staging location
 		Write-Host "Copying the mod's sources to Src..."
-		$this._CopySrcFolder("$($this.stagingPath)\Src")
+		$this._CopySrcFolder("$($this.modSrcRoot)\Src")
 		Write-Host "Copied mod sources to Src."
 	}
 
 	[void]_CopySrcFolder([string] $includeDir) {
 		Copy-Item "$($includeDir)\*" "$($this.devSrcRoot)\" -Force -Recurse -WarningAction SilentlyContinue
-		if (Test-Path "$($includeDir)\extra_globals.uci") {
+		$extraGlobalsFile = "$($includeDir)\extra_globals.uci"
+		if (Test-Path $extraGlobalsFile) {
 			# append extra_globals.uci to globals.uci
-			Get-Content "$($includeDir)\extra_globals.uci" | Add-Content "$($this.devSrcRoot)\Core\Globals.uci"
+			"// Macros included from $($extraGlobalsFile)" | Add-Content "$($this.devSrcRoot)\Core\Globals.uci"
+			Get-Content $extraGlobalsFile | Add-Content "$($this.devSrcRoot)\Core\Globals.uci"
+
+			$this._ParseMacroFile($extraGlobalsFile)
+		}
+	}
+
+	[void]_ParseMacroFile([string]$file) {
+		$lines = Get-Content $file
+		# check for dupes
+		$redefine = $false
+		$lineNr = 1
+		foreach ($line in $lines) {
+			$defineMatch = $line | Select-String -Pattern '^\s*`define\s*([a-zA-Z][a-zA-Z0-9_]*)'
+			if ($null -ne $defineMatch -and $defineMatch.Matches.Success) {
+				[string]$macroName = $defineMatch.Matches.Groups[1]
+				$prevDef = $this.macroDefs[$macroName]
+				if ($null -ne $prevDef -and
+					-not $redefine -and
+					$prevDef.file -ne $file) {
+					Write-Host -ForegroundColor Red "Error: Implicit redefinition of macro $($macroName)"
+					$defineWord = if ($prevDef.redefine) { "redefined" } else { "defined" }
+					Write-Host "    Note: Previously $($defineWord) at $($prevDef.file)($($prevDef.lineNr))"
+					Write-Host "    Note: Implicitly redefined at $($file)($($lineNr))"
+					Write-Host "    Help: Rename the macro, or add ``// X2MBC-Redefine`` above to explicitly redefine and silence this warning."
+					ThrowFailure "Implicit macro redefinition."
+				}
+				$macroDef = [PSCustomObject]@{
+					file = $file
+					lineNr = $lineNr
+					redefine = $redefine
+				}
+				$this.macroDefs[$macroName] = $macroDef
+			} elseif ($line -match '^\s*`define') {
+				ThrowFailure "Unrecognized macro at $($file)($($line)). This is a bug in X2ModBuildCommon."
+			}
+
+			$redefine = $line -match "X2MBC-Redefine"
+			$lineNr += 1
 		}
 	}
 
