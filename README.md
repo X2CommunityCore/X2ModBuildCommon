@@ -30,12 +30,12 @@ Open a command line prompt (cmd or powershell, does not matter) in the `[modRoot
 your working tree is clean and run the following command:
 
 ```
-git subtree add --prefix .scripts/X2ModBuildCommon https://github.com/X2CommunityCore/X2ModBuildCommon main --squash
+git subtree add --prefix .scripts/X2ModBuildCommon https://github.com/X2CommunityCore/X2ModBuildCommon v1.0.0 --squash
 ```
 
 ### Your mod does not use git
-Download the source code of this repository from GitHub. Unzip it and place so that `build_commom.ps1` resides at
-`[modRoot]\.scripts\X2ModBuildCommon\build_common.ps1`.
+Download the source code of this repository from the latest release on the [Releases page](https://github.com/X2CommunityCore/X2ModBuildCommon/releases/latest).
+Unzip it and place so that `build_common.ps1` resides at `[modRoot]\.scripts\X2ModBuildCommon\build_common.ps1`.
 
 ## Ignoring the `BuildCache`
 The build system will create a `[modRoot]\BuildCache` folder which is used for various file-based operations (such
@@ -172,7 +172,7 @@ If you don't use git, simply download the new version and overwrite the old file
 If you use git, run the same command as before, replacing `add` with `pull`:
 
 ```
-git subtree pull --prefix .scripts/X2ModBuildCommon https://github.com/X2CommunityCore/X2ModBuildCommon main --squash
+git subtree pull --prefix .scripts/X2ModBuildCommon https://github.com/X2CommunityCore/X2ModBuildCommon v1.0.0 --squash
 ```
 
 # Configuration options
