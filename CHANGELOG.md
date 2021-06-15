@@ -1,5 +1,7 @@
 ## Next
 
+## 1.1.0 (2021-06-15)
+
 * Remove compiled script packages when switching between debug and release mode to prevent compiler error (#16)
 * Remove compiled script packages when modifying macros (#20)
 * Overridden Steam UGC IDs can now be `long` (`int64`) (#22)
