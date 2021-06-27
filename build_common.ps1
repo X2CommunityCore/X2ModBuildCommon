@@ -803,7 +803,10 @@ class BuildProject {
 				New-Item -ItemType "directory" -Path $sdkContentModsOurDir
 			}
 
-			# Prep the guard package
+			# Prep the guard package.
+			# When the cooker iterates the packages to decide what to cook, it will always skip the first
+			# one alphabetically. To counteract this, we make a dummy package which will always be
+			# iterated first
 			New-Item -ItemType "directory" -Path $sdkContentModsOurGuardDir
 			Copy-Item "$global:buildCommonSelfPath\EmptyPackage" $sdkContentModsOurGuardPackagePath
 		} else {
