@@ -643,6 +643,7 @@ class BuildProject {
 		
 		$sdkEnginePath = "$($this.sdkPath)/XComGame/Config/DefaultEngine.ini"
 		$sdkEngineContentOriginal = Get-Content $sdkEnginePath | Out-String
+		$sdkEngineChangesPreamble = "HACKS FOR MOD ASSETS COOKING"
 		
 		$cookOutputParentDir = [io.path]::combine($this.sdkPath, 'XComGame', 'Published')
 		$cookOutputDir = [io.path]::combine($cookOutputParentDir, 'CookedPCConsole')
@@ -657,7 +658,7 @@ class BuildProject {
 		# This doesn't use locks, so it can break if multiple builds are running at the same time,
 		# so let's hope that mod devs are smart enough to not run simultanoues builds
 		
-		if ($sdkEngineContentOriginal.Contains("HACKS FOR MOD ASSETS COOKING"))
+		if ($sdkEngineContentOriginal.Contains($sdkEngineChangesPreamble))
 		{
 			ThrowFailure "Another cook is already in progress (DefaultEngine.ini)"
 		}
@@ -666,7 +667,7 @@ class BuildProject {
 		$newEngineLines = @()
 
 		# Denote the beginning of our changes (+ used by the check above)
-		$newEngineLines += ";HACKS FOR MOD ASSETS COOKING - $($this.modNameCanonical)"
+		$newEngineLines += ";$sdkEngineChangesPreamble - $($this.modNameCanonical)"
 
 		# Collection maps
 		$newEngineLines += "[Engine.PackagesToForceCookPerMap]"
