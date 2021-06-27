@@ -154,6 +154,11 @@ name in the "Clean" task):
             "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\clean.ps1' -modName 'MY_MOD_NAME' -srcDirectory '${workspaceRoot}' -sdkPath '${config:xcom.highlander.sdkroot}' -gamePath '${config:xcom.highlander.gameroot}'",
             "group": "build",
             "problemMatcher": []
+        },
+        {
+            "label": "Full rebuild",
+            "dependsOrder": "sequence",
+            "dependsOn": ["Clean", "Build"]
         }
     ]
 }
