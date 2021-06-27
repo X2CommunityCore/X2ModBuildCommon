@@ -594,12 +594,12 @@ class BuildProject {
 
 		$contentForCookPath = "$($this.modSrcRoot)\ContentForCook"
 
-		$sfCollectionMapsNames = @($this.contentOptions.sfCollectionMaps | ForEach-Object { $_.name })
+		$sfCollectionOnlyMapsNames = @($this.contentOptions.sfCollectionMaps | ForEach-Object { $_.name })
 		$sfStandaloneNames = @()
 		$sfMapsNames = @()
 
 		if (-not(Test-Path $contentForCookPath)) {
-			if ($sfCollectionMapsNames.Length -lt 1) {
+			if ($sfCollectionOnlyMapsNames.Length -lt 1) {
 				ThrowFailure "Collection map cooking is requested, but no ContentForCook folder is present"
 			}
 
@@ -611,14 +611,14 @@ class BuildProject {
 			$sfMapsNames = @(Get-ChildItem -Path "$contentForCookPath/Maps" -Recurse -Include *.umap | ForEach-Object { $_.BaseName })
 
 			# Allow using the force-package-into-map functionality for non-empty maps
-			$sfCollectionMapsNames = $sfCollectionMapsNames | Where-Object { $sfMapsNames -notcontains $_ }
+			$sfCollectionOnlyMapsNames = $sfCollectionOnlyMapsNames | Where-Object { $sfMapsNames -notcontains $_ }
 		}
 
 		if (Test-Path "$contentForCookPath/Standalone") {
 			$sfStandaloneNames = @(Get-ChildItem -Path "$contentForCookPath/Standalone" -Recurse -Include *.upk | ForEach-Object { $_.BaseName })
 		}
 
-		if (($sfMapsNames.Length -lt 1) -and ($sfStandaloneNames.Length -lt 1) -and ($sfCollectionMapsNames.Length -lt 1)) {
+		if (($sfMapsNames.Length -lt 1) -and ($sfStandaloneNames.Length -lt 1) -and ($sfCollectionOnlyMapsNames.Length -lt 1)) {
 			if ((Test-Path "$contentForCookPath/Secondary") -and ($null -ne (Get-ChildItem -Path "$contentForCookPath/Secondary" -Recurse -Include *.upk))) {
 				ThrowFailure "Found secondary packages for cooking but nothing ever could use them"
 			}
@@ -633,7 +633,7 @@ class BuildProject {
 		# Bit of debug info
 		Write-Host "SF Standalone: $sfStandaloneNames"
 		Write-Host "Maps: $sfMapsNames"
-		Write-Host "Collection maps: $sfCollectionMapsNames"
+		Write-Host "Collection only maps: $sfCollectionOnlyMapsNames"
 
 		# Step 0. Basic preparation
 		
@@ -681,7 +681,7 @@ class BuildProject {
 		# Paths
 		$newEngineLines += "[Core.System]"
 		if ($sfMapsNames.Length -gt 0) { $newEngineLines += "+Paths=$contentForCookPath\Maps" }
-		if ($sfCollectionMapsNames.Length -gt 0) { $newEngineLines += "+Paths=$collectionMapsPath" }
+		if ($sfCollectionOnlyMapsNames.Length -gt 0) { $newEngineLines += "+Paths=$collectionMapsPath" }
 		if (Test-Path "$contentForCookPath/Secondary") { $newEngineLines += "+Paths=$contentForCookPath\Secondary" }
 
 		# Final content
@@ -769,11 +769,11 @@ class BuildProject {
 
 		# Prep the folder for the collection maps
 		# Not the most efficient approach, but there are bigger time saves to be had
-		if ($sfCollectionMapsNames.Length -gt 0) {
+		if ($sfCollectionOnlyMapsNames.Length -gt 0) {
 			Remove-Item $collectionMapsPath -Force -Recurse -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
 			New-Item -ItemType "directory" -Path $collectionMapsPath
 
-			foreach ($map in $sfCollectionMapsNames) {
+			foreach ($map in $sfCollectionOnlyMapsNames) {
 				# Important: we cannot use .umap extension here - git lfs (if in use) gets confused during git subtree add
 				# See https://github.com/X2CommunityCore/X2ModBuildCommon/wiki/Do-not-use-.umap-for-files-in-this-repo
 				Copy-Item "$global:buildCommonSelfPath\EmptyUMap" "$collectionMapsPath\$map.umap"
