@@ -641,8 +641,8 @@ class BuildProject {
 		$collectionMapsPath = [io.path]::combine($this.buildCachePath, 'CollectionMaps')
 		$tfcSuffix = "_$($this.modNameCanonical)_"
 		
-		$defaultEnginePath = "$($this.sdkPath)/XComGame/Config/DefaultEngine.ini"
-		$defaultEngineContentOriginal = Get-Content $defaultEnginePath | Out-String
+		$sdkEnginePath = "$($this.sdkPath)/XComGame/Config/DefaultEngine.ini"
+		$sdkEngineContentOriginal = Get-Content $sdkEnginePath | Out-String
 		
 		$cookOutputParentDir = [io.path]::combine($this.sdkPath, 'XComGame', 'Published')
 		$cookOutputDir = [io.path]::combine($cookOutputParentDir, 'CookedPCConsole')
@@ -657,7 +657,7 @@ class BuildProject {
 		# This doesn't use locks, so it can break if multiple builds are running at the same time,
 		# so let's hope that mod devs are smart enough to not run simultanoues builds
 		
-		if ($defaultEngineContentOriginal.Contains("HACKS FOR MOD ASSETS COOKING"))
+		if ($sdkEngineContentOriginal.Contains("HACKS FOR MOD ASSETS COOKING"))
 		{
 			ThrowFailure "Another cook is already in progress (DefaultEngine.ini)"
 		}
@@ -685,8 +685,8 @@ class BuildProject {
 		if (Test-Path "$contentForCookPath/Secondary") { $newEngineLines += "+Paths=$contentForCookPath\Secondary" }
 
 		# Final content
-		$defaultEngineContentNew = $newEngineLines -join "`n"
-		$defaultEngineContentNew = "$defaultEngineContentOriginal`n$defaultEngineContentNew"
+		$sdkEngineContentNew = $newEngineLines -join "`n"
+		$sdkEngineContentNew = "$sdkEngineContentOriginal`n$sdkEngineContentNew"
 
 		# Prepare the cook output folder
 		$previousCookOutputDirPath = $null
@@ -817,7 +817,7 @@ class BuildProject {
 		}
 
 		# Backup the DefaultEngine.ini
-		Copy-Item $defaultEnginePath "$($this.sdkPath)/XComGame/Config/DefaultEngine.ini.bak_PRE_ASSET_COOKING"
+		Copy-Item $sdkEnginePath "$($this.sdkPath)/XComGame/Config/DefaultEngine.ini.bak_PRE_ASSET_COOKING"
 
 		# This try block needs to be kept as small as possible as it puts the SDK into a (temporary) invalid state
 		try {
@@ -833,7 +833,7 @@ class BuildProject {
 			if ($sfStandaloneNames.Length -gt 0) { New-Junction $sdkContentModsOurStandaloneDir "$contentForCookPath/Standalone" }
 
 			# Set the modified engine.ini
-			$defaultEngineContentNew | Set-Content $defaultEnginePath -NoNewline
+			$sdkEngineContentNew | Set-Content $sdkEnginePath -NoNewline
 
 			# while ($true) {}
 
@@ -850,11 +850,11 @@ class BuildProject {
 
 			# Revert ini
 			try {
-				$defaultEngineContentOriginal | Set-Content $defaultEnginePath -NoNewline
-				Write-Host "Reverted $defaultEnginePath"	
+				$sdkEngineContentOriginal | Set-Content $sdkEnginePath -NoNewline
+				Write-Host "Reverted $sdkEnginePath"	
 			}
 			catch {
-				FailureMessage "Failed to revert $defaultEnginePath"
+				FailureMessage "Failed to revert $sdkEnginePath"
 				FailureMessage $_
 			}
 
