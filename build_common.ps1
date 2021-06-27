@@ -890,7 +890,10 @@ class BuildProject {
 				}
 
 				try {
-					Remove-Item $sdkContentModsOurDir # Important: not recursive!
+					# Important: not recursive!
+					# If we failed to undo the Standalone junction above, we will nuke the original
+					# packages in the mod project if this is a recursive removal
+					Remove-Item $sdkContentModsOurDir 
 					Write-Host "Removed $sdkContentModsOurDir folder"
 				}
 				catch {
