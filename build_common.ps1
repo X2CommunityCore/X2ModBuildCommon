@@ -611,7 +611,7 @@ class BuildProject {
 			$sfMapsNames = @(Get-ChildItem -Path "$contentForCookPath/Maps" -Recurse -Include *.umap | ForEach-Object { $_.BaseName })
 
 			# Allow using the force-package-into-map functionality for non-empty maps
-			$sfCollectionOnlyMapsNames = $sfCollectionOnlyMapsNames | Where-Object { $sfMapsNames -notcontains $_ }
+			$sfCollectionOnlyMapsNames = @($sfCollectionOnlyMapsNames | Where-Object { $sfMapsNames -notcontains $_ })
 		}
 
 		if (Test-Path "$contentForCookPath/Standalone") {
