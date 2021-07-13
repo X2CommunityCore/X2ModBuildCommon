@@ -12,9 +12,11 @@ $global:invarCulture = [System.Globalization.CultureInfo]::InvariantCulture
 
 class BuildProject {
 	[string] $modNameCanonical
+	[string] $modNameFull
 	[string] $projectRoot
 	[string] $sdkPath
 	[string] $gamePath
+	[string] $finalModPath
 	[string] $contentOptionsJsonFilename
 	[long] $publishID = -1
 	[bool] $debug = $false
@@ -29,8 +31,10 @@ class BuildProject {
 
 	# lazily set
 	[string] $modSrcRoot
+	[string] $modX2projPath
 	[string] $devSrcRoot
 	[string] $stagingPath
+	[string] $xcomModPath
 	[string] $commandletHostPath
 	[string] $buildCachePath
 	[string] $modcookdir
@@ -46,7 +50,8 @@ class BuildProject {
 		[string]$sdkPath,
 		[string]$gamePath
 	){
-		$this.modNameCanonical = $mod
+		$this.modNameFull = $mod
+		$this.modNameCanonical = $mod -Replace '[\s;]',''
 		$this.projectRoot = $projectRoot
 		$this.sdkPath = $sdkPath
 		$this.gamePath = $gamePath
@@ -195,8 +200,11 @@ class BuildProject {
 	}
 
 	[void]_SetupUtils() {
-		$this.modSrcRoot = "$($this.projectRoot)\$($this.modNameCanonical)"
+		$this.modSrcRoot = "$($this.projectRoot)\$($this.modNameFull)"
+		$this.modX2projPath = "$($this.modSrcRoot)\$($this.modNameFull).x2proj"
 		$this.stagingPath = "$($this.sdkPath)\XComGame\Mods\$($this.modNameCanonical)"
+		$this.xcomModPath = "$($this.stagingPath)\$($this.modNameCanonical).XComMod"
+		$this.finalModPath = "$($this.gamePath)\XComGame\Mods\$($this.modNameCanonical)"
 		$this.devSrcRoot = "$($this.sdkPath)\Development\Src"
 		$this.commandletHostPath = "$($this.sdkPath)/binaries/Win64/XComGame.com"
 
@@ -287,15 +295,16 @@ class BuildProject {
 		}
 		
 		Write-Host "Copying mod project to staging..."
-		Robocopy.exe "$($this.modSrcRoot)" "$($this.sdkPath)\XComGame\Mods\$($this.modNameCanonical)" *.* $global:def_robocopy_args /XF @xf /XD "ContentForCook"
+		Robocopy.exe "$($this.modSrcRoot)" "$($this.stagingPath)" *.* $global:def_robocopy_args /XF @xf /XD "ContentForCook"
 		Write-Host "Copied project to staging."
 
 		New-Item "$($this.stagingPath)/Script" -ItemType Directory
 
 		# read mod metadata from the x2proj file
-		Write-Host "Reading mod metadata from $($this.modSrcRoot)\$($this.modNameCanonical).x2proj..."
-		[xml]$x2projXml = Get-Content -Path "$($this.modSrcRoot)\$($this.modNameCanonical).x2proj"
-		$modProperties = $x2projXml.Project.PropertyGroup[0]
+		Write-Host "Reading mod metadata from $($this.modX2ProjPath)"
+		[xml]$x2projXml = Get-Content -Path "$($this.modX2ProjPath)"
+		$xmlPropertyGroup = $x2projXml.Project.PropertyGroup
+		$modProperties = if ($xmlPropertyGroup -is [array]) { $xmlPropertyGroup[0] } else { $xmlPropertyGroup }
 		$publishedId = $modProperties.SteamPublishID
 		if ($this.publishID -ne -1) {
 			$publishedId = $this.publishID
@@ -306,7 +315,7 @@ class BuildProject {
 		Write-Host "Read."
 
 		Write-Host "Writing mod metadata..."
-		Set-Content "$($this.sdkPath)/XComGame/Mods/$($this.modNameCanonical)/$($this.modNameCanonical).XComMod" "[mod]`npublishedFileId=$publishedId`nTitle=$title`nDescription=$description`nRequiresXPACK=true"
+		Set-Content "$($this.xcomModPath)" "[mod]`npublishedFileId=$publishedId`nTitle=$title`nDescription=$description`nRequiresXPACK=true"
 		Write-Host "Written."
 
 		# Create CookedPCConsole folder for the mod
@@ -677,11 +686,9 @@ class BuildProject {
 	}
 
 	[void]_FinalCopy() {
-		$finalModPath = "$($this.gamePath)\XComGame\Mods\$($this.modNameCanonical)"
-
 		# copy all staged files to the actual game's mods folder
 		# TODO: Is the string interpolation required in the robocopy calls?
-		Robocopy.exe "$($this.stagingPath)" "$($finalModPath)" *.* $global:def_robocopy_args
+		Robocopy.exe "$($this.stagingPath)" "$($this.finalModPath)" *.* $global:def_robocopy_args
 	}
 
 	[void]_InvokeEditorCmdlet([StdoutReceiver] $receiver, [string] $makeFlags, [int] $sleepMsDuration) {
