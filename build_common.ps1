@@ -474,7 +474,7 @@ class BuildProject {
 			$scriptsMakeArguments = "$scriptsMakeArguments -debug"
 		}
 
-		$handler = [MakeStdoutReceiver]::new($this.devSrcRoot, "$($this.modSrcRoot)\Src")
+		$handler = [MakeStdoutReceiver]::new($this)
 		$handler.processDescr = "compiling base game scripts"
 		$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments, 50)
 
@@ -483,7 +483,7 @@ class BuildProject {
 		{
 			Write-Host "Compiling base game scripts without final_release..."
 			$scriptsMakeArguments = "make -nopause -unattended"
-			$handler = [MakeStdoutReceiver]::new($this.devSrcRoot, "$($this.modSrcRoot)\Src")
+			$handler = [MakeStdoutReceiver]::new($this)
 			$handler.processDescr = "compiling base game scripts"
 			$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments, 50)
 		}
@@ -496,7 +496,7 @@ class BuildProject {
 		{
 			$scriptsMakeArguments = "$scriptsMakeArguments -debug"
 		}
-		$handler = [MakeStdoutReceiver]::new($this.devSrcRoot, "$($this.modSrcRoot)\Src")
+		$handler = [MakeStdoutReceiver]::new($this)
 		$handler.processDescr = "compiling mod scripts"
 		$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments, 50)
 	}
@@ -1211,28 +1211,42 @@ class BufferingReceiver : StdoutReceiver {
 
 
 class MakeStdoutReceiver : StdoutReceiver {
-	[string] $developmentDirectory
-	[string] $modSrcRoot
+	[BuildProject] $proj
 
 	MakeStdoutReceiver(
-		[string]$developmentDirectory,
-		[string]$modSrcRoot
+		[BuildProject]$proj
 	){
-		$this.developmentDirectory = $developmentDirectory
-		$this.modSrcRoot = $modSrcRoot
+		$this.proj = $proj
 	}
 
 	[void]ParseLine([string] $outTxt) {
 		([StdoutReceiver]$this).ParseLine($outTxt)
 		$messagePattern = "^(.*)\(([0-9]*)\) : (.*)$"
 		if (($outTxt -Match "Error|Warning") -And ($outTxt -Match $messagePattern)) {
-			# And just do a regex replace on the sdk Development directory with the mod src directory.
-			# The pattern needs escaping to avoid backslashes in the path being interpreted as regex escapes, etc.
-			$pattern = [regex]::Escape($this.developmentDirectory)
-			# n.b. -Replace is case insensitive
-			$replacementTxt = $outtxt -Replace $pattern, $this.modSrcRoot
-			# this syntax works with both VS Code and ModBuddy
-			$outTxt = $replacementTxt -Replace $messagePattern, '$1($2) : $3'
+			# extract original path from $matches automatic variable created by above -Match
+			$origPath = $matches[1]
+
+			# create regex pattern specifically from the part we're interested in replacing
+			$pattern = [regex]::Escape("$($this.proj.sdkPath)\Development\Src")
+
+			# Since later paths overwrite earlier files, check paths in reverse order
+			# Also include the Development\Src directory to catch files that weren't included via the proper mechanisms
+			# (e.g. by a PreMakeHook)
+			$reversePaths = @("$($this.proj.sdkPath)\Development\Src", "$($this.proj.sdkPath)\Development\SrcOrig") +
+				$this.proj.include + @("$($this.proj.modSrcRoot)\Src")
+			[array]::Reverse($reversePaths)
+
+			foreach ($checkPath in $reversePaths) {
+				$testPath = $origPath -Replace $pattern,$checkPath
+				# if the file exists, it's certainly the one that caused the error
+				if (Test-Path $testPath) {
+					# Normalize path to get rid of `..`s
+					$testPath = [IO.Path]::GetFullPath($testPath)
+					# this syntax works with both VS Code and ModBuddy
+					$outTxt = $outTxt -Replace $messagePattern, ($testPath + '($2) : $3')
+					break
+				}
+			}
 		}
 
 		$summPattern = "^(Success|Failure) - ([0-9]+) error\(s\), ([0-9]+) warning\(s\) \(([0-9]+) Unique Errors, ([0-9]+) Unique Warnings\)"
