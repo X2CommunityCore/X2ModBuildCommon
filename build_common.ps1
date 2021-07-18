@@ -1212,11 +1212,18 @@ class BufferingReceiver : StdoutReceiver {
 
 class MakeStdoutReceiver : StdoutReceiver {
 	[BuildProject] $proj
+	[string[]] $reversePaths
 
 	MakeStdoutReceiver(
 		[BuildProject]$proj
 	){
 		$this.proj = $proj
+		# Since later paths overwrite earlier files, check paths in reverse order
+		# Also include the Development\Src directory to catch files that weren't included via the proper mechanisms
+		# (e.g. by a PreMakeHook)
+		$this.reversePaths = @("$($this.proj.sdkPath)\Development\Src", "$($this.proj.sdkPath)\Development\SrcOrig") +
+			$this.proj.include + @("$($this.proj.modSrcRoot)\Src")
+		[array]::Reverse($this.reversePaths)
 	}
 
 	[void]ParseLine([string] $outTxt) {
@@ -1229,14 +1236,7 @@ class MakeStdoutReceiver : StdoutReceiver {
 			# create regex pattern specifically from the part we're interested in replacing
 			$pattern = [regex]::Escape("$($this.proj.sdkPath)\Development\Src")
 
-			# Since later paths overwrite earlier files, check paths in reverse order
-			# Also include the Development\Src directory to catch files that weren't included via the proper mechanisms
-			# (e.g. by a PreMakeHook)
-			$reversePaths = @("$($this.proj.sdkPath)\Development\Src", "$($this.proj.sdkPath)\Development\SrcOrig") +
-				$this.proj.include + @("$($this.proj.modSrcRoot)\Src")
-			[array]::Reverse($reversePaths)
-
-			foreach ($checkPath in $reversePaths) {
+			foreach ($checkPath in $this.reversePaths) {
 				$testPath = $origPath -Replace $pattern,$checkPath
 				# if the file exists, it's certainly the one that caused the error
 				if (Test-Path $testPath) {
