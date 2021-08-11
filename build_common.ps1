@@ -1219,9 +1219,7 @@ class MakeStdoutReceiver : StdoutReceiver {
 	){
 		$this.proj = $proj
 		# Since later paths overwrite earlier files, check paths in reverse order
-		# Also include the Development\Src directory to catch files that weren't included via the proper mechanisms
-		# (e.g. by a PreMakeHook)
-		$this.reversePaths = @("$($this.proj.sdkPath)\Development\Src", "$($this.proj.sdkPath)\Development\SrcOrig") +
+		$this.reversePaths = @("$($this.proj.sdkPath)\Development\SrcOrig") +
 			$this.proj.include + @("$($this.proj.modSrcRoot)\Src")
 		[array]::Reverse($this.reversePaths)
 	}
@@ -1236,6 +1234,7 @@ class MakeStdoutReceiver : StdoutReceiver {
 			# create regex pattern specifically from the part we're interested in replacing
 			$pattern = [regex]::Escape("$($this.proj.sdkPath)\Development\Src")
 
+			$found = $false
 			foreach ($checkPath in $this.reversePaths) {
 				$testPath = $origPath -Replace $pattern,$checkPath
 				# if the file exists, it's certainly the one that caused the error
@@ -1244,8 +1243,12 @@ class MakeStdoutReceiver : StdoutReceiver {
 					$testPath = [IO.Path]::GetFullPath($testPath)
 					# this syntax works with both VS Code and ModBuddy
 					$outTxt = $outTxt -Replace $messagePattern, ($testPath + '($2) : $3')
+					$found = $true
 					break
 				}
+			}
+			if (-not $found) {
+				$outTxt = $outTxt -Replace $messagePattern, ($origPath + '($2) : $3')
 			}
 		}
 
