@@ -80,7 +80,14 @@ switch ($config)
 $builder.InvokeBuild()
 ```
 
-Replace `YourProjectName` with the internal mod name (e.g. the name of your `.XCOM_sln` file without the extension)
+Replace `YourProjectName` with the mod project name (e.g. the name of your `.XCOM_sln` file without the extension).
+
+If you're transitioning an existing mod to X2ModBuildCommon, this advice might come too late, but we recommend that
+the project name contain only ASCII alphabetic characters, numbers and underscores (matching the regular expression `^[A-Za-z][A-Za-z0-9_]*$`).
+The ModBuddy project generator lets you create projects with a large variety of characters that will break the ModBuddy
+build already (like brackets and dashes), but spaces and semicolons are allowed and work fine with the Firaxis ModBuddy plugin.
+`X2ModBuildCommon` will do its best to support project names with spaces, but it's historically been a common source of bugs
+and you may run into fewer of them if you keep your mod name simple.
 
 ## IDE integration
 At this point your mod is actually ready for building but invoking the powershell script with all the arguments each time manually

@@ -1,5 +1,10 @@
 ## Next
 
+* Support Rebuild ModBuddy target
+* Improvements and fixes to asset cooking functionality
+* Support projects with spaces in path (#55)
+* Fix cryptic error about `SteamPublishID` for some projects (#56)
+
 ## 1.1.0 (2021-06-15)
 
 * Remove compiled script packages when switching between debug and release mode to prevent compiler error (#16)
