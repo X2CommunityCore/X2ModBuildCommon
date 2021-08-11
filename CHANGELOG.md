@@ -1,9 +1,14 @@
 ## Next
 
+## 1.1.1 (2021-08-11)
+
 * Support Rebuild ModBuddy target
-* Improvements and fixes to asset cooking functionality
+* Internal improvements and fixes to asset cooking functionality
 * Support projects with spaces in path (#55)
 * Fix cryptic error about `SteamPublishID` for some projects (#56)
+* Fail the build in case cooking cleanup fails, preventing silent SDK corruption (#54)
+* Properly rewrite error messages originating from `IncludeSrc`-ed files (#45)
+
 
 ## 1.1.0 (2021-06-15)
 
