@@ -1059,6 +1059,7 @@ class ModAssetsCookStep {
 		}
 		finally {
 			Write-Host "Cleaning up the asset cooking hacks"
+			$cleanupFailed = $false
 
 			# Revert ini
 			try {
@@ -1068,6 +1069,8 @@ class ModAssetsCookStep {
 			catch {
 				FailureMessage "Failed to revert $($this.sdkEngineIniPath)"
 				FailureMessage $_
+
+				$cleanupFailed = $true
 			}
 
 			# Revert junctions
@@ -1079,6 +1082,8 @@ class ModAssetsCookStep {
 			catch {
 				FailureMessage "Failed to remove $($this.cookerOutputPath) junction"
 				FailureMessage $_
+
+				$cleanupFailed = $true
 			}
 
 			if (![string]::IsNullOrEmpty($this.previousCookerOutputDirPath))
@@ -1094,7 +1099,15 @@ class ModAssetsCookStep {
 				catch {
 					FailureMessage "Failed to restore previous $($this.cookerOutputPath)"
 					FailureMessage $_
+
+					$cleanupFailed = $true
 				}
+			}
+
+			if ($cleanupFailed) {
+				Write-Host ""
+				Write-Host ""
+				ThrowFailure "Failed to clean up the asset cooking hacks - your SDK is now in a corrupted state. Please preform the cleanup manually before building a mod or opening the editor."
 			}
 		}
 	}
