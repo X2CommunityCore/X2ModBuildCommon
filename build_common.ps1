@@ -546,16 +546,14 @@ class BuildProject {
 		Write-Host "Checking the need to PrecompileShaders"
 		$contentfiles = @()
 
+		# We don't need to consider
+		# .umaps - they will never contain material (instances) objects - only reference them
+		# ContentForCook - seekfree packages have an inlined shader cache
+
 		if (Test-Path "$($this.modSrcRoot)/Content")
 		{
-			$contentfiles = $contentfiles + (Get-ChildItem "$($this.modSrcRoot)/Content" -Include *.upk, *.umap -Recurse -File)
+			$contentfiles += Get-ChildItem "$($this.modSrcRoot)/Content" -Include *.upk -Recurse -File
 		}
-		
-		# Turns out that seekfree packages contain an inlined shader cache, so there is no need to pass them through the shader precompiler
-		# if (Test-Path "$($this.modSrcRoot)/ContentForCook")
-		# {
-		# 	$contentfiles = $contentfiles + (Get-ChildItem "$($this.modSrcRoot)/ContentForCook" -Include *.upk, *.umap -Recurse -File)
-		# }
 
 		if ($contentfiles.length -eq 0) {
 			Write-Host "No content files, skipping PrecompileShaders."
