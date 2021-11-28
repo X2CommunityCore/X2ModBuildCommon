@@ -43,6 +43,8 @@ class BuildProject {
 	[bool] $isHl
 	[bool] $cookHL
 	[PSCustomObject] $contentOptions
+	[string] $sdkEngineIniPath
+	[string] $sdkEngineIniContent
 
 	BuildProject(
 		[string]$mod,
@@ -226,6 +228,9 @@ class BuildProject {
 		{
 			New-Item -ItemType "directory" -Path $this.buildCachePath
 		}
+
+		$this.sdkEngineIniPath = "$($this.sdkPath)/XComGame/Config/DefaultEngine.ini"
+		$this.sdkEngineIniContent = Get-Content $this.sdkEngineIniPath | Out-String
 
 		$this.makeFingerprintsPath = "$($this.sdkPath)\XComGame\lastBuildDetails.json"
 		$lastBuildDetails = if (Test-Path $this.makeFingerprintsPath) {
@@ -691,6 +696,16 @@ class BuildProject {
 		Robocopy.exe "$($this.stagingPath)" "$($this.finalModPath)" *.* $global:def_robocopy_args
 	}
 
+	[string[]] _PrepareBuildCacheEngineIniWithAdditions ([string] $fileNamePrefix, [array] $lines) {
+		$localDefaultEngineIniPath = [io.path]::combine($this.buildCachePath, $fileNamePrefix + "_DefaultEngine.ini")
+		$localXComEngineIniPath = [io.path]::combine($this.buildCachePath, $fileNamePrefix + "_XComEngine.ini")
+
+		$newEngineIniContent = $this.sdkEngineIniContent + "`n" + ($lines -join "`n") + "`n"
+		$newEngineIniContent | Set-Content $localDefaultEngineIniPath -NoNewline
+
+		return @($localDefaultEngineIniPath, $localXComEngineIniPath)
+	}
+
 	[void]_InvokeEditorCmdlet([StdoutReceiver] $receiver, [string] $makeFlags, [int] $sleepMsDuration) {
 		# Create a ProcessStartInfo object to hold the details of the make command, its arguments, and set up
 		# stdout/stderr redirection.
@@ -782,14 +797,15 @@ class ModAssetsCookStep {
 
 	[string] $cachedReleaseScriptPackagesDir
 
-	[string] $sdkEngineIniPath
-	[string] $sdkEngineIniContentOriginal
 	[string] $sdkEngineIniChangesPreamble = "HACKS FOR MOD ASSETS COOKING"
 
 	[string[]] $filesRequiredToSkipFirstPass
 
-	[string] $sdkEngineIniContentNewFirstPass
-	[string] $sdkEngineIniContentNewNormalPass
+	[string] $engineIniFirstPassDefaultPath
+	[string] $engineIniFirstPassXComPath
+
+	[string] $engineIniNormalPassDefaultPath
+	[string] $engineIniNormalPassXComPath
 
 	[string] $previousCookerOutputDirPath = $null
 
@@ -818,7 +834,7 @@ class ModAssetsCookStep {
 
 		$this._PrepareReleaseScriptPackages()
 		$this._PrepareProjectCache()
-		$this._PrepareSdkEngineIni()
+		$this._PrepareEngineIni()
 		$this._PrepareSdkFolders()
 		$this._PrepareEditorArgs()
 
@@ -841,9 +857,6 @@ class ModAssetsCookStep {
 		
 		$this.cachedReleaseScriptPackagesDir = [io.path]::combine($this.project.buildCachePath, 'ReleaseScriptPackages')
 
-		$this.sdkEngineIniPath = "$($this.project.sdkPath)/XComGame/Config/DefaultEngine.ini"
-		$this.sdkEngineIniContentOriginal = Get-Content $this.sdkEngineIniPath | Out-String
-
 		$this.filesRequiredToSkipFirstPass = @("GlobalPersistentCookerData.upk", "gfxCommon_SF.upk")
 		foreach ($package in $this.cookedNativeScriptPackages) {
 			$this.filesRequiredToSkipFirstPass += "$package.upk"
@@ -862,7 +875,9 @@ class ModAssetsCookStep {
 			ThrowFailure "Asset cooking is requested, but no ContentForCook folder is present"
 		}
 
-		if ($this.sdkEngineIniContentOriginal.Contains($this.sdkEngineIniChangesPreamble))
+		# Technically no longer needed (since we no longer overwrite the file) but kept
+		# for now to guard against aborted cook -> xmb update -> cook again
+		if ($this.project.sdkEngineIniContent.Contains($this.sdkEngineIniChangesPreamble))
 		{
 			ThrowFailure "Another cook is already in progress (DefaultEngine.ini)"
 		}
@@ -946,18 +961,15 @@ class ModAssetsCookStep {
 		return $false
 	}
 
-	[void] _PrepareSdkEngineIni() {
-		$original = $this.sdkEngineIniContentOriginal + "`n"
-		$additionsShared = $this._BuildEngineIniAdditionsShared() + "`n"
+	[void] _PrepareEngineIni() {
+		$this.engineIniFirstPassDefaultPath, $this.engineIniFirstPassXComPath =
+			$this.project._PrepareBuildCacheEngineIniWithAdditions("AssetsCookFirstPass", $this._PrepareEngineIniAdditionsShared())
 
-		$this.sdkEngineIniContentNewFirstPass = $original + $additionsShared
-		$this.sdkEngineIniContentNewNormalPass = $original + $additionsShared + $this._BuildEngineIniAdditionsNormalPass()
-
-		# Backup the DefaultEngine.ini
-		Copy-Item $this.sdkEngineIniPath "$($this.sdkEngineIniPath).bak_PRE_ASSET_COOKING"
+		$this.engineIniNormalPassDefaultPath, $this.engineIniNormalPassXComPath =
+			$this.project._PrepareBuildCacheEngineIniWithAdditions("AssetsCookNormalPass", $this._PrepareEngineIniAdditionsNormalPass())
 	}
 
-	[string] _BuildEngineIniAdditionsShared () {
+	[string[]] _PrepareEngineIniAdditionsShared () {
 		$lines = @()
 
 		# Denote the beginning of our changes (this marker is used by _Verify to detect unfinished cook)
@@ -976,11 +988,11 @@ class ModAssetsCookStep {
 		$lines += "[Engine.PackagesToAlwaysCook]"
 		$lines += "!SeekFreePackage=Empty"
 
-		return $lines -join "`n"
+		return $lines
 	}
 
-	[string] _BuildEngineIniAdditionsNormalPass () {
-		$lines = @()
+	[string[]] _PrepareEngineIniAdditionsNormalPass () {
+		$lines = $this._PrepareEngineIniAdditionsShared()
 
 		# Don't re-cook the startup (cooker doesn't cache it)
 		$lines += "[Engine.StartupPackages]"
@@ -1029,8 +1041,8 @@ class ModAssetsCookStep {
 			$mapsString = "$mapsString $umap.umap "
 		}
 
-		$this.editorArgsFirstPass = "CookPackages $cookerFlags"
-		$this.editorArgsNormalPass = "CookPackages $mapsString $cookerFlags"
+		$this.editorArgsFirstPass = "CookPackages $cookerFlags -DEFENGINEINI=""$($this.engineIniFirstPassDefaultPath)"" -ENGINEINI=""$($this.engineIniFirstPassXComPath)"""
+		$this.editorArgsNormalPass = "CookPackages $mapsString $cookerFlags -DEFENGINEINI=""$($this.engineIniNormalPassDefaultPath)"" -ENGINEINI=""$($this.engineIniNormalPassXComPath)"""
 	}
 
 	[void] _ExecuteCore () {
@@ -1044,7 +1056,7 @@ class ModAssetsCookStep {
 				# First do a cook without our assets since gfxCommon.upk still get included in the cook, polluting the TFCs, depsite the config hacks
 
 				Write-Host "Running first time mod assets cook"
-				$this._InvokeAssetCooker($this.editorArgsFirstPass, $this.sdkEngineIniContentNewFirstPass)
+				$this._InvokeAssetCooker($this.editorArgsFirstPass)
 
 				# Now delete the polluted TFCs
 				Get-ChildItem -Path $this.cachedCookerOutputPath -Filter "*$($this.tfcSuffix).tfc" | Remove-Item
@@ -1055,23 +1067,11 @@ class ModAssetsCookStep {
 				Write-Host "First time cook done, proceeding with normal"
 			}
 
-			$this._InvokeAssetCooker($this.editorArgsNormalPass, $this.sdkEngineIniContentNewNormalPass)
+			$this._InvokeAssetCooker($this.editorArgsNormalPass)
 		}
 		finally {
 			Write-Host "Cleaning up the asset cooking hacks"
 			$cleanupFailed = $false
-
-			# Revert ini
-			try {
-				$this.sdkEngineIniContentOriginal | Set-Content $this.sdkEngineIniPath -NoNewline
-				Write-Host "Reverted $($this.sdkEngineIniPath)"	
-			}
-			catch {
-				FailureMessage "Failed to revert $($this.sdkEngineIniPath)"
-				FailureMessage $_
-
-				$cleanupFailed = $true
-			}
 
 			# Revert junctions
 
@@ -1112,10 +1112,8 @@ class ModAssetsCookStep {
 		}
 	}
 
-	[void] _InvokeAssetCooker ([string] $editorArguments, [string] $engineIniContentNew) {
+	[void] _InvokeAssetCooker ([string] $editorArguments) {
 		Write-Host $editorArguments
-
-		$engineIniContentNew | Set-Content $this.sdkEngineIniPath -NoNewline
 
 		$handler = [ModcookReceiver]::new()
 		$handler.processDescr = "cooking mod packages"
