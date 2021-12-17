@@ -47,4 +47,6 @@ $folders | ForEach-Object {
     Remove-Item -Recurse -Force $_ -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
 }
 
+TryCleanHlCookerOutput $sdkPath "$srcDirectory\$modName\Src"
+
 Write-Host "Cleaned."
