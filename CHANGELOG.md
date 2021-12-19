@@ -1,5 +1,7 @@
 ## Next
 
+## 1.2.0 (2021-12-19)
+
 * Significant improvements/rework of the asset cooking step (#70)
 
 ## 1.1.2 (2021-11-30)
