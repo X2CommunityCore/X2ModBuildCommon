@@ -1,5 +1,7 @@
 ## Next
 
+* Significant improvements/rework of the asset cooking step (#70)
+
 ## 1.1.2 (2021-11-30)
 
 * Shader precompile step is no longer triggered by maps
