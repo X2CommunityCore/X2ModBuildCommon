@@ -624,7 +624,7 @@ class BuildProject {
 	}
 
 	[void]_RunCookHL() {
-		$this._EnsureCookerOutputParentDirExists()
+		$this._EnsureCookerOutputDirExists()
 
 		# Cook it
 		# Normally, the mod tools create a symlink in the SDK directory to the game CookedPCConsole directory,
@@ -667,7 +667,7 @@ class BuildProject {
 		$this._InvokeEditorCmdlet($handler, $cook_args, 10)
 	}
 
-	[void] _EnsureCookerOutputParentDirExists () {
+	[void] _EnsureCookerOutputDirExists () {
 		if(-not(Test-Path $this.cookerOutputPath)) {
 			Write-Host "Creating Published/CookedPCConsole directory..."
 			New-Item $this.cookerOutputPath -ItemType Directory
@@ -828,7 +828,7 @@ class ModAssetsCookStep {
 		Write-Host "Initializing assets cooking"
 
 		$this._Init()
-		$this._Verify()
+		$this._VerifyProjectAndSdk()
 		
 		Write-Host "Preparing assets cooking"
 
@@ -885,7 +885,7 @@ class ModAssetsCookStep {
 		}
 	}
 
-	[void] _Verify() {
+	[void] _VerifyProjectAndSdk() {
 		# TODO: consider removing this requirement.
 		# It might be legitimate use case to cook a "secondary" vanilla package or a collection map that consists of only vanilla packages
 		if (-not(Test-Path $this.contentForCookPath))
@@ -1080,7 +1080,7 @@ class ModAssetsCookStep {
 	}
 
 	[void] _PrepareSdkFolders () {
-		$this.project._EnsureCookerOutputParentDirExists()
+		$this.project._EnsureCookerOutputDirExists()
 				
 		if (-not(Test-Path $this.sdkContentModsOurDir)) {
 			Write-Host "Creating $($this.sdkContentModsOurDir) directory..."
