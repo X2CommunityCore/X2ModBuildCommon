@@ -897,15 +897,15 @@ class ModAssetsCookStep {
 			# If we have any files, then something is happening here - abort
 			if ($null -ne (Get-ChildItem -Path $this.sdkContentModsOurDir -Force -Recurse)) {
 				ThrowFailure "$($this.sdkContentModsOurDir) is already in use (not empty)"
+			}
 		}
-	}
 
 		# The DLC cooker needs to read/copy the shipped GPCD
 		$shippedGpcdPath = [io.path]::combine($this.project.sdkPath, 'XComGame', 'CookedPCConsole', 'GlobalPersistentCookerData.upk')
 		if (!(Test-Path $shippedGpcdPath)) {
 			ThrowFailure "$shippedGpcdPath does not exist. Please verify your that your SDK is configured correctly"
 		}
-		}
+	}
 
 	[void] _PrepareProjectCache() {
 		# Prep the folder for the collection maps
@@ -928,8 +928,8 @@ class ModAssetsCookStep {
 			# Save that everything is deleted
 			$this.cookerOutputTracker.tfcFiles = @()
 			$this._RecordCookerOutputTracker()
-				 }
-			}
+		}
+	}
 
 	[bool] _CheckCachedTfcsNotAltered () {
 		[System.Collections.ArrayList] $currentTfcs = @($this._GetOurTfcFiles() | Select-Object -ExpandProperty Name)
@@ -946,10 +946,10 @@ class ModAssetsCookStep {
 			if ($file.LastWriteTimeUtc.Ticks -ne $trackedFileData.lastUpdatedUtc) {
 				Write-Host "$($trackedFileData.fullFileName) timestamp mismatch"
 				return $false
-		}
+			}
 
 			$currentTfcs.Remove($trackedFileData.fullFileName)
-	}
+		}
 
 		if ($currentTfcs.Count -gt 0) {
 			Write-Host "Unexpected TFCs found: $currentTfcs"
@@ -1056,8 +1056,8 @@ class ModAssetsCookStep {
 		$lines += "-Paths=..\..\XComGame\Content\Mods" # Do not actually load the packages from there
 
 		if ($this.sfCollectionOnlyMaps.Length -gt 0) {
-		$lines += "+Paths=$($this.collectionMapsPath)"
-	}
+			$lines += "+Paths=$($this.collectionMapsPath)"
+		}
 
 		# Stop all the "Adding [...]" garbage
 		# TODO: our maps here?
@@ -1114,15 +1114,15 @@ class ModAssetsCookStep {
 			Write-Host "Cleaning up the asset cooking hacks"
 			$cleanupFailed = $false
 
-				try {
+			try {
 				Remove-Item -Recurse -Force "$($this.sdkContentModsOurDir)\*"
 				Write-Host "Emptied $($this.sdkContentModsOurDir)"
-				}
-				catch {
+			}
+			catch {
 				FailureMessage "Failed to empty $($($this.sdkContentModsOurDir))"
-					FailureMessage $_
+				FailureMessage $_
 
-					$cleanupFailed = $true
+				$cleanupFailed = $true
 			}
 
 			if ($cleanupFailed) {
