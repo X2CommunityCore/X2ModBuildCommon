@@ -48,9 +48,6 @@ backups/previous versions (e.g. when using a VCS) - this can lead to incorrect b
 If you are using git, you should add it (`BuildCache/`) to your `.gitignore`
 
 ## Setting up the build entrypoint
-
-### Mods with script packages
-
 Create `[modRoot]\.scripts\build.ps1` with the following content:
 
 ```ps1
@@ -84,41 +81,6 @@ $builder.InvokeBuild()
 ```
 
 Replace `YourProjectName` with the mod project name (e.g. the name of your `.XCOM_sln` file without the extension).
-
-### Mods without script packages
-
-Create `[modRoot]\.scripts\build.ps1` with the following content:
-
-```ps1
-Param(
-    [string] $srcDirectory, # the path that contains your mod's .XCOM_sln
-    [string] $sdkPath, # the path to your SDK installation ending in "XCOM 2 War of the Chosen SDK"
-    [string] $gamePath, # the path to your XCOM 2 installation ending in "XCOM2-WaroftheChosen"
-    [string] $config # build configuration
-)
-
-$ScriptDirectory = Split-Path $MyInvocation.MyCommand.Path
-$common = Join-Path -Path $ScriptDirectory "X2ModBuildCommon\build_common.ps1"
-Write-Host "Sourcing $common"
-. ($common)
-
-$builder = [BuildProject]::new("YourProjectName", $srcDirectory, $sdkPath, $gamePath)
-
-switch ($config)
-{
-    "default" {
-        # Nothing special
-    }
-    "" { ThrowFailure "Missing build configuration" }
-    default { ThrowFailure "Unknown build configuration $config" }
-}
-
-$builder.InvokeBuild()
-```
-
-Replace `YourProjectName` with the mod project name (e.g. the name of your `.XCOM_sln` file without the extension).
-
-### Project name considerations
 
 If you're transitioning an existing mod to X2ModBuildCommon, this advice might come too late, but we recommend that
 the project name contain only ASCII alphabetic characters, numbers and underscores (matching the regular expression `^[A-Za-z][A-Za-z0-9_]*$`).
