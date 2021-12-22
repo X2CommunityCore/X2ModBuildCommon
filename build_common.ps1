@@ -44,7 +44,7 @@ class BuildProject {
 	[string] $buildCachePath
 	[string] $cookerOutputPath
 	[string] $makeFingerprintsPath
-	[string[]] $thismodpackages
+	[string[]] $modScriptPackages
 	[bool] $isHl
 	[bool] $cookHL
 	[PSCustomObject] $contentOptions
@@ -102,25 +102,42 @@ class BuildProject {
 			$this._ConfirmPaths()
 			$this._SetupUtils()
 			$this._LoadContentOptions()
-			$this._PerformStep({ ($_)._CleanAdditional() }, "Cleaning", "Cleaned", "additional mods")
+
+			if ($this._HasScriptPackages()) {
+				$this._PerformStep({ ($_)._CleanAdditional() }, "Cleaning", "Cleaned", "additional mods")
+			}
+
 			$this._PerformStep({ ($_)._CopyModToSdk() }, "Mirroring", "Mirrored", "mod to SDK")
 			$this._PerformStep({ ($_)._ConvertLocalization() }, "Converting", "Converted", "Localization UTF-8 -> UTF-16")
-			$this._PerformStep({ ($_)._CopyToSrc() }, "Populating", "Populated", "Development\Src folder")
-			$this._PerformStep({ ($_)._RunPreMakeHooks() }, "Running", "Ran", "Pre-Make hooks")
-			$this._PerformStep({ ($_)._CheckCleanCompiled() }, "Verifying", "Verified", "compiled script packages")
-			$this._PerformStep({ ($_)._RunMakeBase() }, "Compiling", "Compiled", "base-game script packages")
-			$this._PerformStep({ ($_)._RunMakeMod() }, "Compiling", "Compiled", "mod script packages")
-			$this._RecordCoreTimestamp()
-			if ($this.isHl) {
-				if (-not $this.debug) {
-					$this._PerformStep({ ($_)._RunCookHL() }, "Cooking", "Cooked", "Highlander packages")
-				} else {
-					Write-Host "Skipping cooking as debug build"
-				}
+
+			if ($this._ShouldCompileBase()) {
+				$this._PerformStep({ ($_)._CopyToSrc() }, "Populating", "Populated", "Development\Src folder")
+				$this._PerformStep({ ($_)._RunPreMakeHooks() }, "Running", "Ran", "Pre-Make hooks")
+				$this._PerformStep({ ($_)._CheckCleanCompiled() }, "Verifying", "Verified", "compiled script packages")
+				$this._PerformStep({ ($_)._RunMakeBase() }, "Compiling", "Compiled", "base-game script packages")
 			}
-			$this._PerformStep({ ($_)._CopyScriptPackages() }, "Copying", "Copied", "compiled script packages")
-			
-			# The shader step needs to happen before cooking - precompiler gets confused by some inlined materials
+
+			if ($this._HasScriptPackages()) {
+				$this._PerformStep({ ($_)._RunMakeMod() }, "Compiling", "Compiled", "mod script packages")
+			}
+
+			if ($this._ShouldCompileBase()) {
+				$this._RecordCoreTimestamp()
+			}
+
+			if ($this._HasScriptPackages()) {
+				if ($this.isHl) {
+					if (-not $this.debug) {
+						$this._PerformStep({ ($_)._RunCookHL() }, "Cooking", "Cooked", "Highlander packages")
+					} else {
+						Write-Host "Skipping HL cooking as debug build"
+					}
+				}
+
+				$this._PerformStep({ ($_)._CopyScriptPackages() }, "Copying", "Copied", "compiled script packages")
+			}
+
+			# The shader step needs to happen before asset cooking - precompiler gets confused by some inlined materials
 			$this._PerformStep({ ($_)._PrecompileShaders() }, "Precompiling", "Precompiled", "shaders")
 	
 			$this._PerformStep({ ($_)._RunCookAssets() }, "Cooking", "Cooked", "mod assets")
@@ -130,8 +147,10 @@ class BuildProject {
 			$this._PerformStep({ ($_)._CopyMissingUncooked() }, "Copying", "Copied", "requested uncooked packages")
 	
 			$this._PerformStep({ ($_)._FinalCopy() }, "Copying", "Copied", "built mod to game directory")
+
 			$fullStopwatch.Stop()
 			$this._ReportTimings($fullStopwatch)
+
 			SuccessMessage "*** SUCCESS! ($(FormatElapsed $fullStopwatch.Elapsed)) ***" $this.modNameCanonical
 		}
 		catch {
@@ -217,7 +236,31 @@ class BuildProject {
 
 		# build package lists we'll need later and delete as appropriate
 		# the mod's packages
-		$this.thismodpackages = Get-ChildItem "$($this.modSrcRoot)/Src" -Directory
+		$modSrcPath = "$($this.modSrcRoot)/Src"
+		if (Test-Path $modSrcPath) {
+			$this.modScriptPackages = @(Get-ChildItem "$($this.modSrcRoot)/Src" -Directory)
+		} else {
+			# No scripts to compile
+			$this.modScriptPackages = @()
+		}
+
+		if (!$this._HasScriptPackages()) {
+			if ($this.clean.Length -gt 0) {
+				ThrowFailure "AddToClean is not supported when no script packages to compile"
+			}
+
+			if ($this.include.Length -gt 0) {
+				ThrowFailure "IncludeSrc is not supported when no script packages to compile"
+			}
+
+			if ($this.preMakeHooks.Length -gt 0) {
+				ThrowFailure "AddPreMakeHook is not supported when no script packages to compile"
+			}
+
+			if ($this.debug) {
+				ThrowFailure "Debug build enabled but no script packages to compile"
+			}
+		}
 
 		$this.isHl = $this._HasNativePackages()
 		$this.cookHL = $this.isHl -and -not $this.debug
@@ -308,7 +351,9 @@ class BuildProject {
 		Robocopy.exe "$($this.modSrcRoot)" "$($this.stagingPath)" *.* $global:def_robocopy_args /XF @xf /XD "ContentForCook"
 		Write-Host "Copied project to staging."
 
-		New-Item "$($this.stagingPath)/Script" -ItemType Directory
+		if ($this._HasScriptPackages()) {
+			New-Item "$($this.stagingPath)/Script" -ItemType Directory
+		}
 
 		# read mod metadata from the x2proj file
 		Write-Host "Reading mod metadata from $($this.modX2ProjPath)"
@@ -369,10 +414,12 @@ class BuildProject {
 		}
 		Write-Host "Copied dependency sources to Src."
 
-		# copying the mod's scripts to the script staging location
-		Write-Host "Copying the mod's sources to Src..."
-		$this._CopySrcFolder("$($this.modSrcRoot)\Src")
-		Write-Host "Copied mod sources to Src."
+		if ($this._HasScriptPackages()) {
+			# copying the mod's scripts to the script staging location
+			Write-Host "Copying the mod's sources to Src..."
+			$this._CopySrcFolder("$($this.modSrcRoot)\Src")
+			Write-Host "Copied mod sources to Src."	
+		}
 	}
 
 	[void]_CopySrcFolder([string] $includeDir) {
@@ -523,7 +570,7 @@ class BuildProject {
 	[bool]_HasNativePackages() {
 		# Check if this is a Highlander and we need to cook things
 		$anynative = $false
-		foreach ($name in $this.thismodpackages) 
+		foreach ($name in $this.modScriptPackages) 
 		{
 			if ($global:nativescriptpackages.Contains($name)) {
 				$anynative = $true
@@ -533,9 +580,26 @@ class BuildProject {
 		return $anynative
 	}
 
+	[bool] _HasScriptPackages () {
+		return $this.modScriptPackages.Length -gt 0
+	}
+
+	[bool] _ShouldCompileBase () {
+		if ($this._HasScriptPackages()) {
+			return $true
+		}
+
+		# We need to compile base game scripts if cooking assets, otherwise the cooker will just crash if the SDK was cleaned beforehand
+		if ($this._AnyAssetsToCook()) {
+			return $true
+		}
+
+		return $false
+	}
+
 	[void]_CopyScriptPackages() {
 		# copy packages to staging
-		foreach ($name in $this.thismodpackages) {
+		foreach ($name in $this.modScriptPackages) {
 			if ($this.cookHL -and $global:nativescriptpackages.Contains($name))
 			{
 				# This is a native (cooked) script package -- copy important upks
@@ -787,6 +851,10 @@ class BuildProject {
 		$exitCode = $process.ExitCode
 		$receiver.Finish($exitCode)
 	}
+
+	[bool] _AnyAssetsToCook () {
+		return ($this.contentOptions.sfStandalone.Length -gt 0) -or ($this.contentOptions.sfMaps.Length -gt 0) -or ($this.contentOptions.sfCollectionMaps.Length -gt 0)
+	}
 }
 
 class ModAssetsCookStep {
@@ -818,7 +886,7 @@ class ModAssetsCookStep {
 	}
 
 	[void] Execute() {
-		if (($this.project.contentOptions.sfStandalone.Length -lt 1) -and ($this.project.contentOptions.sfMaps.Length -lt 1) -and ($this.project.contentOptions.sfCollectionMaps.Length -lt 1)) {
+		if (!$this.project._AnyAssetsToCook()) {
 			Write-Host "No asset cooking is requested, skipping"
 			return
 
