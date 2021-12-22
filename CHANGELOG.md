@@ -1,5 +1,7 @@
 ## Next
 
+## 1.2.1 (2021-12-22)
+
 * Support mods without script packages
 
 ## 1.2.0 (2021-12-19)
