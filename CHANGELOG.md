@@ -1,5 +1,7 @@
 ## Next
 
+* Support mods without script packages
+
 ## 1.2.0 (2021-12-19)
 
 * Significant improvements/rework of the asset cooking step (#70)

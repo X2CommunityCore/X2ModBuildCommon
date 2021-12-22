@@ -59,6 +59,11 @@ function TryCleanHlCookerOutput (
     ### Check if this is a HL mod ###
     #################################
 
+    if (!(Test-Path $modSrcPath)) {
+        Write-Host "No Src directory in mod - this is not a HL mod"
+        return
+    }
+
     $modPackages = Get-ChildItem $modSrcPath -Directory | Select-Object -ExpandProperty "Name"
     $anyNative = $false
 
