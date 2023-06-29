@@ -52,6 +52,7 @@ Create `[modRoot]\.scripts\build.ps1` with the following content:
 
 ```ps1
 Param(
+    [string] $modName, # Name of the mod to build
     [string] $srcDirectory, # the path that contains your mod's .XCOM_sln
     [string] $sdkPath, # the path to your SDK installation ending in "XCOM 2 War of the Chosen SDK"
     [string] $gamePath, # the path to your XCOM 2 installation ending in "XCOM2-WaroftheChosen"
@@ -63,7 +64,7 @@ $common = Join-Path -Path $ScriptDirectory "X2ModBuildCommon\build_common.ps1"
 Write-Host "Sourcing $common"
 . ($common)
 
-$builder = [BuildProject]::new("YourProjectName", $srcDirectory, $sdkPath, $gamePath)
+$builder = [BuildProject]::new($modName, $srcDirectory, $sdkPath, $gamePath)
 
 switch ($config)
 {
@@ -79,8 +80,6 @@ switch ($config)
 
 $builder.InvokeBuild()
 ```
-
-Replace `YourProjectName` with the mod project name (e.g. the name of your `.XCOM_sln` file without the extension).
 
 If you're transitioning an existing mod to X2ModBuildCommon, this advice might come too late, but we recommend that
 the project name contain only ASCII alphabetic characters, numbers and underscores (matching the regular expression `^[A-Za-z][A-Za-z0-9_]*$`).
@@ -135,7 +134,7 @@ VS Code may tell you that the configuration settings are unknown. This is accept
 
 Next up, you have to tell VS code about your build tasks. Create a folder `.vscode` next to the `.scripts` folder,
 and within it create a `tasks.json` file with the following content (replacing `MY_MOD_NAME` with the mod project
-name in the "Clean" task):
+name):
 
 ```json
 {
@@ -144,14 +143,14 @@ name in the "Clean" task):
         {
             "label": "Build",
             "type": "shell",
-            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\build.ps1' -srcDirectory '${workspaceRoot}' -sdkPath '${config:xcom.highlander.sdkroot}' -gamePath '${config:xcom.highlander.gameroot}' -config 'default'",
+            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\build.ps1' -modName 'MY_MOD_NAME' -srcDirectory '${workspaceRoot}' -sdkPath '${config:xcom.highlander.sdkroot}' -gamePath '${config:xcom.highlander.gameroot}' -config 'default'",
             "group": "build",
             "problemMatcher": []
         },
         {
             "label": "Build debug",
             "type": "shell",
-            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\build.ps1' -srcDirectory '${workspaceRoot}' -sdkPath '${config:xcom.highlander.sdkroot}' -gamePath '${config:xcom.highlander.gameroot}' -config 'debug'",
+            "command": "powershell.exe –NonInteractive –ExecutionPolicy Unrestricted -file '${workspaceRoot}\\.scripts\\build.ps1' -modName 'MY_MOD_NAME' -srcDirectory '${workspaceRoot}' -sdkPath '${config:xcom.highlander.sdkroot}' -gamePath '${config:xcom.highlander.gameroot}' -config 'debug'",
             "group": "build",
             "problemMatcher": []
         },
