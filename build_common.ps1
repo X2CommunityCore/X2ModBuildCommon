@@ -370,7 +370,12 @@ class BuildProject {
 		Write-Host "Read."
 
 		Write-Host "Writing mod metadata..."
-		Set-Content "$($this.xcomModPath)" "[mod]`npublishedFileId=$publishedId`nTitle=$title`nDescription=$description`nRequiresXPACK=true"
+		if ($this.sdkPath -clike "*Chosen*") {
+			Set-Content "$($this.xcomModPath)" "[mod]`npublishedFileId=$publishedId`nTitle=$title`nDescription=$description`nRequiresXPACK=true"
+		}
+		else {
+			Set-Content "$($this.xcomModPath)" "[mod]`npublishedFileId=$publishedId`nTitle=$title`nDescription=$description"
+		}
 		Write-Host "Written."
 
 		# Create CookedPCConsole folder for the mod
