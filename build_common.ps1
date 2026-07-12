@@ -240,7 +240,7 @@ class BuildProject {
 		# the mod's packages
 		$modSrcPath = "$($this.modSrcRoot)/Src"
 		if (Test-Path $modSrcPath) {
-			$this.modScriptPackages = @(Get-ChildItem "$($this.modSrcRoot)/Src" -Directory)
+			$this.modScriptPackages = @((Get-ChildItem "$($this.modSrcRoot)/Src" -Directory).Name)
 		} else {
 			# No scripts to compile
 			$this.modScriptPackages = @()
