@@ -240,7 +240,10 @@ class BuildProject {
 		# the mod's packages
 		$modSrcPath = "$($this.modSrcRoot)/Src"
 		if (Test-Path $modSrcPath) {
-			$this.modScriptPackages = @(Get-ChildItem "$($this.modSrcRoot)/Src" -Directory)
+			# Compile only packages with actual .uc sources. Otherwise, _CopyScriptPackages crashes trying to copy .u files that were never produced.
+			$this.modScriptPackages = @(Get-ChildItem $modSrcPath -Directory | Where-Object {
+				@(Get-ChildItem $_.FullName -Filter "*.uc" -Recurse -File -ErrorAction SilentlyContinue).Count -gt 0
+			} | ForEach-Object Name)
 		} else {
 			# No scripts to compile
 			$this.modScriptPackages = @()
