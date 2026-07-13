@@ -114,11 +114,10 @@ class BuildProject {
 				$this._PerformStep({ ($_)._CopyToSrc() }, "Populating", "Populated", "Development\Src folder")
 				$this._PerformStep({ ($_)._RunPreMakeHooks() }, "Running", "Ran", "Pre-Make hooks")
 				$this._PerformStep({ ($_)._CheckCleanCompiled() }, "Verifying", "Verified", "compiled script packages")
-				$this._PerformStep({ ($_)._RunMakeBase() }, "Compiling", "Compiled", "base-game script packages")
 			}
 
-			if ($this._HasScriptPackages()) {
-				$this._PerformStep({ ($_)._RunMakeMod() }, "Compiling", "Compiled", "mod script packages")
+			if ($this._ShouldCompileBase() -or $this._HasScriptPackages()) {
+				$this._PerformStep({ ($_)._RunMake() }, "Compiling", "Compiled", "script packages")
 			}
 
 			if ($this._ShouldCompileBase()) {
@@ -535,42 +534,24 @@ class BuildProject {
 		$lastBuildDetails | ConvertTo-Json | Set-Content -Path $this.makeFingerprintsPath
 	}
 
-	[void]_RunMakeBase() {
-		# build the base game scripts
+	[void]_RunMake() {
 		$scriptsMakeArguments = "make -nopause -unattended"
-		if ($this.final_release -eq $true)
-		{
-			$scriptsMakeArguments = "$scriptsMakeArguments -final_release"
-		}
-		if ($this.debug -eq $true)
-		{
-			$scriptsMakeArguments = "$scriptsMakeArguments -debug"
+		$scope = "base game scripts"
+		if ($this._HasScriptPackages()) {
+			$scriptsMakeArguments += " -mods $($this.modNameCanonical) $($this.stagingPath)"
+			$scope = "mod scripts"
 		}
 
-		$handler = [MakeStdoutReceiver]::new($this)
-		$handler.processDescr = "compiling base game scripts"
-		$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments, 50)
-
-		# If we build in final release, we must build the normal scripts too
-		if ($this.final_release -eq $true)
-		{
-			Write-Host "Compiling base game scripts without final_release..."
-			$scriptsMakeArguments = "make -nopause -unattended"
-			$handler = [MakeStdoutReceiver]::new($this)
-			$handler.processDescr = "compiling base game scripts"
-			$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments, 50)
+		if ($this.final_release -eq $true) {
+			Write-Host "Compiling $scope with and without final_release..."
+			$this._InvokeMake($scope, "$scriptsMakeArguments -final_release")
 		}
+		$this._InvokeMake($scope, "$scriptsMakeArguments$(if ($this.debug -eq $true) { " -debug" })")
 	}
 
-	[void]_RunMakeMod() {
-		# build the mod's scripts
-		$scriptsMakeArguments = "make -nopause -mods $($this.modNameCanonical) $($this.stagingPath)"
-		if ($this.debug -eq $true)
-		{
-			$scriptsMakeArguments = "$scriptsMakeArguments -debug"
-		}
+	[void]_InvokeMake($scope, $scriptsMakeArguments) {
 		$handler = [MakeStdoutReceiver]::new($this)
-		$handler.processDescr = "compiling mod scripts"
+		$handler.processDescr = "compiling $scope"
 		$this._InvokeEditorCmdlet($handler, $scriptsMakeArguments, 50)
 	}
 
