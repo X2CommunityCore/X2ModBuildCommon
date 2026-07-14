@@ -564,7 +564,7 @@ class BuildProject {
 
 	[void]_RunMakeMod() {
 		# build the mod's scripts
-		$scriptsMakeArguments = "make -nopause -mods $($this.modNameCanonical) $($this.stagingPath)"
+		$scriptsMakeArguments = "make -nopause -unattended -mods $($this.modNameCanonical) $($this.stagingPath)"
 		if ($this.debug -eq $true)
 		{
 			$scriptsMakeArguments = "$scriptsMakeArguments -debug"
@@ -718,7 +718,7 @@ class BuildProject {
 		Write-Host "Copied Texture File Caches."
 		
 		# Prepare editor args
-		$cook_args = @("cookpackages", "-platform=pcconsole", "-quickanddirty", "-modcook", "-sha", "-multilanguagecook=INT+FRA+ITA+DEU+RUS+POL+KOR+ESN", "-singlethread", "-nopause")
+		$cook_args = @("cookpackages", "-platform=pcconsole", "-quickanddirty", "-modcook", "-sha", "-multilanguagecook=INT+FRA+ITA+DEU+RUS+POL+KOR+ESN", "-singlethread", "-nopause", "-unattended")
 		if ($this.final_release -eq $true)
 		{
 			$cook_args += "-final_release"
