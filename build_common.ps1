@@ -833,6 +833,17 @@ class BuildProject {
 		$process.BeginOutputReadLine()
 		$process.BeginErrorReadLine()
 
+		# Optional hook for callers to run a helper alongside the build (e.g. to dismiss stuck dialogs);
+		# X2MBC_DIALOG_WATCHER is an executable path, invoked with the build process's PID as its only argument.
+		$watcherProcess = $null
+		if ($env:X2MBC_DIALOG_WATCHER -and (Test-Path $env:X2MBC_DIALOG_WATCHER)) {
+			$watcherPinfo = New-Object System.Diagnostics.ProcessStartInfo
+			$watcherPinfo.FileName = $env:X2MBC_DIALOG_WATCHER
+			$watcherPinfo.Arguments = "$($process.Id)"
+			$watcherPinfo.UseShellExecute = $false
+			$watcherProcess = [System.Diagnostics.Process]::Start($watcherPinfo)
+		}
+
 		# Wait for the process to exit. This is horrible, but using $process.WaitForExit() blocks
 		# the powershell thread so we get no output from make echoed to the screen until the process finishes.
 		# By polling we get regular output as it goes.
@@ -840,11 +851,11 @@ class BuildProject {
 			if ($sleepMsDuration -lt 1) {
 				while (!$exitData.exited) {
 					# Just spin
-				}		
+				}
 			} else {
 				while (!$exitData.exited) {
 					Start-Sleep -m $sleepMsDuration
-				}		
+				}
 			}
 		}
 		finally {
@@ -852,6 +863,9 @@ class BuildProject {
 			if (!$exitData.exited) {
 				Write-Host "Killing $($receiver.processDescr) tree"
 				KillProcessTree $process.Id
+			}
+			if ($watcherProcess -and !$watcherProcess.HasExited) {
+				$watcherProcess.Kill()
 			}
 		}
 
